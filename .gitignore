@@ -1,0 +1,79 @@
+############################
+# OS / Editor
+############################
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*.log
+
+############################
+# Environment / Secrets
+############################
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+############################
+# Build / Output
+############################
+dist/
+build/
+out/
+target/
+
+############################
+# Dependency directories
+############################
+node_modules/
+vendor/
+
+############################
+# Python
+############################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.venv/
+venv/
+
+############################
+# Java / JVM
+############################
+*.class
+*.jar
+*.war
+*.ear
+.gradle/
+.mvn/
+.gradle-cache/
+
+############################
+# Logs / Runtime
+############################
+logs/
+*.log
+*.pid
+
+############################
+# Test / Coverage
+############################
+coverage/
+.nyc_output/
+*.lcov
+
+############################
+# Temporary files
+############################
+tmp/
+temp/
+*.tmp
+*.bak
