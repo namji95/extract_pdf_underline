@@ -2128,865 +2128,15 @@
 #
 #     main(path)
 
-for i in range(5):
-    print(i-i)
-
-# """
-# 현재 가장 적합한 로직
-# 2026.01.16 ; 특수기호가 존재할 경우 ; 기준으로 데이터 분리 | ,가 있는 경우 , 기준으로 데이터 분리 => ;가 우선
-# merge_by_semicolon, split_products
-# PDF에서 밑줄 친 텍스트를 추출하고
-# 해당 밑줄이 속한 상표(Filing number/International registration number)와 연결
-# """
-#
-# import re
-# import fitz
-# import sys
-# import asyncio
-# from pathlib import Path
-# from typing import List, Dict, Optional
-# from concurrent.futures import ThreadPoolExecutor
-#
-# def extract_trademark_sections(pdf_path):
-#     """
-#     PDF에서 'Information concerning the earlier mark' 섹션을 기준으로
-#     각 상표(Earlier Mark)의 범위를 추출하는 함수
-#     """
-#
-#     print("\n[START] extract_trademark_sections")
-#     print(f"PDF PATH: {pdf_path}")
-#
-#     # PDF 열기
-#     doc = fitz.open(pdf_path)
-#
-#     # 최종 섹션 결과
-#     sections = []
-#
-#     # ==================================================
-#     # 1️⃣ 모든 페이지에서 텍스트 블록 수집
-#     # ==================================================
-#     all_blocks = []
-#
-#     for page_num, page in enumerate(doc):
-#         print(f"\n--- Page {page_num + 1} 처리 시작 ---")
-#
-#         # PyMuPDF dict 형태로 텍스트 추출
-#         blocks = page.get_text("dict")["blocks"]
-#
-#         for block_idx, block in enumerate(blocks):
-#             # 텍스트 라인이 있는 블록만 사용
-#             if "lines" not in block:
-#                 continue
-#
-#             block_text = ""
-#
-#             # 한 블록 안의 모든 span 텍스트를 하나로 합침
-#             for line in block["lines"]:
-#                 for span in line["spans"]:
-#                     block_text += span["text"] + " "
-#
-#             block_text = block_text.strip()
-#
-#             block_info = {
-#                 "page": page_num + 1,               # 페이지 번호
-#                 "y0": block["bbox"][1],             # 블록 시작 y좌표
-#                 "y1": block["bbox"][3],             # 블록 끝 y좌표
-#                 "text": block_text                  # 블록 전체 텍스트
-#             }
-#
-#             print(f"[BLOCK] page={block_info['page']} y0={block_info['y0']:.2f} "
-#                   f"text='{block_text[:80]}'")
-#
-#             all_blocks.append(block_info)
-#
-#     print(f"\n[INFO] 전체 블록 수집 완료: {len(all_blocks)}개")
-#
-#     # ==================================================
-#     # 2️⃣ 'Information concerning the earlier mark' 시작점 찾기
-#     # ==================================================
-#     section_starts = []
-#
-#     for idx, block in enumerate(all_blocks):
-#         text = block["text"]
-#
-#         # PDF 체크박스 기호 제거
-#         text_cleaned = text.replace("□", "").replace("☐", "").strip()
-#
-#         # 패턴 1️⃣ 번호가 있는 경우: (1), (2) ...
-#         match = re.search(
-#             r"Information\s+concerning\s+the\s+earlier\s+mark\s*\((\d+)\)",
-#             text_cleaned,
-#             re.IGNORECASE
-#         )
-#
-#         if match:
-#             mark_number = int(match.group(1))
-#             print(f"[SECTION START] idx={idx}, mark_number={mark_number}, "
-#                   f"page={block['page']}, y={block['y0']:.2f}")
-#
-#             section_starts.append({
-#                 "index": idx,
-#                 "mark_number": mark_number,
-#                 "page": block["page"],
-#                 "y": block["y0"]
-#             })
-#             continue
-#
-#         # 패턴 2️⃣ 번호 없는 경우 (단일 상표 문서)
-#         match = re.search(
-#             r"Information\s+concerning\s+the\s+earlier\s+mark\s*$",
-#             text_cleaned,
-#             re.IGNORECASE
-#         )
-#
-#         if match:
-#             print(f"[SECTION START - NO NUMBER] idx={idx}, page={block['page']}")
-#
-#             section_starts.append({
-#                 "index": idx,
-#                 "mark_number": 1,
-#                 "page": block["page"],
-#                 "y": block["y0"]
-#             })
-#
-#     print(f"\n[INFO] 섹션 시작점 개수: {len(section_starts)}")
-#
-#     # ==================================================
-#     # 3️⃣ 섹션 시작점이 아예 없는 PDF 처리
-#     # ==================================================
-#     if not section_starts:
-#         print("[WARN] 섹션 헤더 미발견 → 전체 문서를 하나의 상표로 처리")
-#
-#         full_text = " ".join([block["text"] for block in all_blocks])
-#
-#         filing_match = re.search(r"Filing number\s*:\s*(\d+)", full_text)
-#         filing_number = filing_match.group(1) if filing_match else None
-#
-#         ir_match = re.search(
-#             r"International\s+(?:Registration|registration)[/\s]+"
-#             r"Subsequent\s+Designation\s+No[.\s]*:?\s*(\d+)",
-#             full_text
-#         )
-#         international_registration = ir_match.group(1) if ir_match else None
-#
-#         print(f"[INFO] Filing Number: {filing_number}")
-#         print(f"[INFO] International Reg.: {international_registration}")
-#
-#         doc.close()
-#
-#         return [{
-#             "mark_number": 1,
-#             "filing_number": filing_number,
-#             "international_registration": international_registration,
-#             "page_start": 1,
-#             "page_end": all_blocks[-1]["page"] if all_blocks else 1,
-#             "y_start": 0,
-#             "y_end": float('inf')
-#         }]
-#
-#     # ==================================================
-#     # 4️⃣ 각 섹션의 범위 계산 + 정보 추출
-#     # ==================================================
-#     for i, start in enumerate(section_starts):
-#         print(f"\n[PROCESS SECTION] mark_number={start['mark_number']}")
-#
-#         # 다음 섹션이 있으면 거기 전까지
-#         if i + 1 < len(section_starts):
-#             end_idx = section_starts[i + 1]["index"]
-#             end_page = section_starts[i + 1]["page"]
-#             end_y = section_starts[i + 1]["y"]
-#         else:
-#             end_idx = len(all_blocks)
-#             end_page = all_blocks[-1]["page"]
-#             end_y = all_blocks[-1]["y1"]
-#
-#         print(f"  page_start={start['page']} y_start={start['y']:.2f}")
-#         print(f"  page_end={end_page} y_end={end_y:.2f}")
-#
-#         # 해당 섹션 텍스트 전체 합치기
-#         section_text = " ".join(
-#             all_blocks[j]["text"] for j in range(start["index"], end_idx)
-#         )
-#
-#         # Filing number 추출
-#         filing_match = re.search(r"Filing\s+number\s*:\s*(\d+)", section_text)
-#         filing_number = filing_match.group(1) if filing_match else None
-#
-#         # International registration number 추출
-#         ir_match = re.search(
-#             r"International\s+registration\s+number\s*:\s*(\d+)",
-#             section_text,
-#             re.IGNORECASE
-#         )
-#         international_registration = ir_match.group(1) if ir_match else None
-#
-#         print(f"  Filing Number: {filing_number}")
-#         print(f"  International Reg.: {international_registration}")
-#
-#         sections.append({
-#             "mark_number": start["mark_number"],
-#             "filing_number": filing_number,
-#             "international_registration": international_registration,
-#             "page_start": start["page"],
-#             "page_end": end_page,
-#             "y_start": start["y"],
-#             "y_end": end_y
-#         })
-#
-#     doc.close()
-#
-#     print("\n[END] extract_trademark_sections")
-#     print(f"[RESULT] sections={sections}")
-#
-#     return sections
-#
-# def extract_underlined_with_positions(pdf_path):
-#     """
-#     PDF에서 '밑줄(underline)'에 해당하는 수평선을 직접 탐지하고,
-#     해당 수평선 바로 위에 위치한 텍스트를 추출하는 함수
-#
-#     ✔ 텍스트 스타일(underline 속성)을 쓰지 않고
-#     ✔ PDF 내부에 실제로 그려진 '수평선(line)'을 기준으로 판단함
-#     """
-#
-#     print("\n[START] extract_underlined_with_positions")
-#     print(f"[INFO] PDF PATH = {pdf_path}")
-#
-#     # ==================================================
-#     # 0️⃣ PDF 파일 오픈
-#     # ==================================================
-#     # fitz.open() : PyMuPDF에서 PDF 문서를 여는 공식 API
-#     doc = fitz.open(pdf_path)
-#
-#     # 최종 결과를 누적할 리스트
-#     # 각 원소는 {page, y, text, class} 형태의 dict
-#     results = []
-#
-#     # ==================================================
-#     # 1️⃣ 페이지 단위로 PDF 순회
-#     # ==================================================
-#     # enumerate → (페이지 인덱스, 페이지 객체)
-#     for page_num, page in enumerate(doc):
-#         print(f"\n==============================")
-#         print(f"[PAGE START] Page {page_num + 1}")
-#         print(f"==============================")
-#
-#         # --------------------------------------------------
-#         # page.get_drawings()
-#         # --------------------------------------------------
-#         # PyMuPDF(fitz) 내장 메서드
-#         # 해당 페이지에 '그려진 모든 그래픽 객체'를 반환
-#         #
-#         # 포함 예:
-#         # - 선(line)
-#         # - 사각형(rect)
-#         # - 테두리
-#         # - 밑줄 (underline)
-#         #
-#         # ❌ 텍스트는 포함되지 않음
-#         drawings = page.get_drawings()
-#         print(f"[INFO] total drawings = {len(drawings)}")
-#
-#         # 밑줄로 의심되는 '수평선 후보'를 모을 리스트
-#         lines = []
-#
-#         # ==================================================
-#         # 2️⃣ 그래픽 객체 중 수평선(underline) 탐색
-#         # ==================================================
-#         for d_idx, d in enumerate(drawings):
-#             print(f"\n  [DRAWING {d_idx + 1}] items = {len(d.get('items', []))}")
-#
-#             # drawings 안의 실제 객체들은 d["items"]에 들어있음
-#             for item in d.get("items", []):
-#
-#                 # item[0] == "l"  → line (선)
-#                 # item 구조 예:
-#                 # ("l", Point(x1,y1), Point(x2,y2))
-#                 if item[0] == "l":
-#                     p1, p2 = item[1], item[2]
-#
-#                     # ------------------------------------------
-#                     # 수평선 판별 조건
-#                     # ------------------------------------------
-#                     # y 좌표 차이가 거의 없으면 수평선
-#                     if abs(p1.y - p2.y) < 2:
-#                         length = abs(p2.x - p1.x)
-#
-#                         # ------------------------------------------
-#                         # 밑줄로 볼 수 있는 길이만 허용
-#                         # 너무 짧으면 노이즈
-#                         # 너무 길면 페이지 구분선/표 테두리 가능성
-#                         # ------------------------------------------
-#                         if 10 < length < 500:
-#                             line_info = {
-#                                 "y": p1.y,
-#                                 "x0": min(p1.x, p2.x),
-#                                 "x1": max(p1.x, p2.x)
-#                             }
-#
-#                             print(
-#                                 f"  [UNDERLINE FOUND] "
-#                                 f"y={p1.y:.2f}, "
-#                                 f"x0={line_info['x0']:.2f}, "
-#                                 f"x1={line_info['x1']:.2f}, "
-#                                 f"length={length:.2f}"
-#                             )
-#
-#                             # 밑줄 후보로 저장
-#                             lines.append(line_info)
-#
-#         print(f"\n[INFO] underline candidates found = {len(lines)}")
-#
-#         # ==================================================
-#         # 3️⃣ 각 밑줄 위의 텍스트 추출
-#         # ==================================================
-#         for idx, line in enumerate(lines):
-#             print(f"\n------------------------------")
-#             print(f"[PROCESS LINE {idx + 1}] y={line['y']:.2f}")
-#             print(f"------------------------------")
-#
-#             # ------------------------------------------
-#             # 밑줄 바로 '위' 영역을 clip 영역으로 설정
-#             # ------------------------------------------
-#             # PDF 좌표계:
-#             # - y 값이 커질수록 아래쪽
-#             #
-#             # 따라서:
-#             # y - 12 ~ y + 1 영역이
-#             # '밑줄 바로 위의 텍스트 영역'
-#             rect = fitz.Rect(
-#                 line["x0"] - 1,
-#                 line["y"] - 12,   # ⬅️ 밑줄 위쪽 텍스트 영역
-#                 line["x1"] + 1,
-#                 line["y"] + 1
-#             )
-#
-#             # ------------------------------------------
-#             # clip 영역 내 텍스트 추출
-#             # ------------------------------------------
-#             raw_text = page.get_text("text", clip=rect)
-#             if raw_text == '심사관\n파트장\n팀장\n국장\n':
-#                 continue
-#
-#             # repr 사용 → \n, \t 같은 제어문자 확인 목적
-#             print(f"[RAW TEXT] {repr(raw_text)}")
-#
-#             # ------------------------------------------
-#             # 텍스트 정리
-#             # - 앞뒤 공백 제거
-#             # - 줄바꿈, 연속 공백 → 단일 공백
-#             # ------------------------------------------
-#             text = raw_text.strip()
-#             text = " ".join(text.split())
-#
-#             print(f"[CLEAN TEXT] '{text}'")
-#
-#             # ==================================================
-#             # 4️⃣ Class 정보 추출 ([Class XX])
-#             # ==================================================
-#             original_text = text
-#
-#             match = re.search(
-#                 r'\[Class\s+(\d+)\]',
-#                 original_text,
-#                 re.IGNORECASE
-#             )
-#
-#             class_num = match.group(1) if match else None
-#             print(f"[CLASS] extracted = {class_num}")
-#
-#             # ==================================================
-#             # 5️⃣ 밑줄 텍스트 정규화
-#             # ==================================================
-#             # - (underlined goods) 제거
-#             # - goods/services 처리
-#             # - class prefix 유지 여부 조정
-#             normalized_text = normalize_underlined_text(
-#                 text,
-#                 remove_class=False
-#             )
-#
-#             print(f"[NORMALIZED TEXT] '{normalized_text}'")
-#
-#             # ==================================================
-#             # 6️⃣ 제외 대상 텍스트 검사
-#             # ==================================================
-#             # Fax, Tel, Email, 심사관/팀장/국장 등
-#             excluded = should_exclude_underlined_text(normalized_text)
-#             print(f"[EXCLUDE CHECK] excluded={excluded}")
-#
-#             # ==================================================
-#             # 7️⃣ 결과 저장
-#             # ==================================================
-#             if normalized_text and len(normalized_text) > 1 and not excluded:
-#                 result_item = {
-#                     "page": page_num + 1,
-#                     "y": line["y"],
-#                     "text": normalized_text,
-#                     "class": class_num
-#                 }
-#
-#                 print(f"[ADD RESULT] {result_item}")
-#                 results.append(result_item)
-#             else:
-#                 print("[SKIP] empty / excluded / too short")
-#
-#     # ==================================================
-#     # 8️⃣ PDF 닫기
-#     # ==================================================
-#     doc.close()
-#
-#     print("\n[END] extract_underlined_with_positions")
-#     print(f"[RESULT COUNT] {len(results)}")
-#     print(f"[RESULT DATA]\n{results}")
-#
-#     return results
-#
-# def match_underlines_to_sections(sections, underlines):
-#     """
-#     밑줄 데이터를 상표 섹션에 매칭하는 함수
-#
-#     흐름:
-#     1. 상표 섹션(page_start ~ page_end, y_start ~ y_end) 순회
-#     2. 해당 섹션에 포함되는 밑줄 데이터만 필터링
-#     3. 세미콜론 기준 병합
-#     4. 최종 상품 단위로 분리
-#     """
-#
-#     print("\n================ MATCH UNDERLINES TO SECTIONS ================\n")
-#
-#     results = []
-#
-#     # 1️⃣ 상표 섹션 단위 순회
-#     for s_idx, section in enumerate(sections, 1):
-#         print(f"\n[SECTION {s_idx}]")
-#         print(f"  page range : {section['page_start']} ~ {section['page_end']}")
-#         print(f"  y range    : {section['y_start']} ~ {section['y_end']}")
-#
-#         section_underlines = []
-#
-#         # 2️⃣ 모든 밑줄 데이터 순회
-#         for u_idx, u in enumerate(underlines, 1):
-#             print(f"\n  └─ [UNDERLINE {u_idx}] page={u['page']} y={u['y']} text='{u['text']}'")
-#
-#             # 2-1️⃣ 페이지 범위 체크
-#             in_page_range = (
-#                 section["page_start"] <= u["page"] <= section["page_end"]
-#             )
-#
-#             if not in_page_range:
-#                 print("     ❌ page range 불일치 → skip")
-#                 continue
-#
-#             # 2-2️⃣ 시작 페이지 y 범위 체크
-#             if u["page"] == section["page_start"] and u["y"] < section["y_start"]:
-#                 print("     ❌ start page y 범위 위 → skip")
-#                 continue
-#
-#             # 2-3️⃣ 종료 페이지 y 범위 체크
-#             if u["page"] == section["page_end"] and u["y"] >= section["y_end"]:
-#                 print("     ❌ end page y 범위 아래 → skip")
-#                 continue
-#
-#             # 2-4️⃣ 조건 통과 → 섹션에 포함
-#             print("     ✅ section에 포함")
-#             section_underlines.append(u)
-#
-#         print(f"\n  ▶ section_underlines ({len(section_underlines)}개):")
-#         for item in section_underlines:
-#             print(f"     - {item}")
-#
-#         # 3️⃣ 병합 + 분리
-#         if section_underlines:
-#             print("\n  ▶ merge_by_semicolon 실행")
-#             merged = merge_by_semicolon(section_underlines)
-#
-#             print("  ▶ merge 결과:")
-#             for m in merged:
-#                 print(f"     - {m}")
-#
-#             print("\n  ▶ split_products 실행")
-#             final_goods = split_products(merged)
-#
-#             print("  ▶ split 결과:")
-#             for fg in final_goods:
-#                 print(f"     - {fg}")
-#
-#             # 4️⃣ 최종 goods 리스트 구성
-#             goods_list = []
-#             for item in final_goods:
-#                 goods_text = item["text"].strip()
-#                 class_num = item.get("class")
-#
-#                 goods_list.append({
-#                     "class": class_num,
-#                     "goods": goods_text
-#                 })
-#
-#         else:
-#             print("\n  ▶ section_underlines 없음")
-#             goods_list = []
-#
-#         # 5️⃣ 섹션 결과 저장
-#         section_result = {
-#             "mark_number": section.get("mark_number"),
-#             "filing_number": section["filing_number"],
-#             "international_registration": section["international_registration"],
-#             "underlined_goods": goods_list
-#         }
-#
-#         print("\n  ▶ SECTION RESULT:")
-#         print(section_result)
-#
-#         results.append(section_result)
-#
-#     print("\n================ MATCH END ================\n")
-#     return results
-#
-# def normalize_underlined_text(text: str, remove_class: bool = False) -> str:
-#     """
-#     밑줄 텍스트를 정규화하는 함수
-#     - 불필요한 prefix 제거
-#     - goods/services 형태 보정
-#     - Class 제거 옵션 처리
-#     """
-#
-#     print("\n[NORMALIZE START]")
-#     print(f"INPUT TEXT: '{text}'")
-#     print(f"remove_class = {remove_class}")
-#
-#     # 1️⃣ 앞뒤 공백 제거
-#     text = text.strip()
-#     print(f"[STEP 1] strip -> '{text}'")
-#
-#     # 2️⃣ 'all' 또는 'All' 단독인 경우 그대로 반환
-#     if re.fullmatch(r"(all|All)", text):
-#         print("[STEP 2] matched 'all' only → return 그대로")
-#         return text
-#
-#     # 3️⃣ '(underlined goods)' 제거
-#     before = text
-#     text = re.sub(
-#         r"^\(\s*underlined goods\s*\)\s*",
-#         "",
-#         text,
-#         flags=re.IGNORECASE
-#     )
-#     if before != text:
-#         print(f"[STEP 3] remove '(underlined goods)' -> '{text}'")
-#
-#     # 4️⃣ '(underlined goods/services)' 제거
-#     before = text
-#     text = re.sub(
-#         r"^\(\s*underlined goods/services\s*\)\s*",
-#         "",
-#         text,
-#         flags=re.IGNORECASE
-#     )
-#     if before != text:
-#         print(f"[STEP 4] remove '(underlined goods/services)' -> '{text}'")
-#
-#     # 5️⃣ Class 제거 옵션
-#     if remove_class:
-#         before = text
-#         text = remove_class_prefix(text)
-#         if before != text:
-#             print(f"[STEP 5] remove class prefix -> '{text}'")
-#
-#     # 6️⃣ goods/services 로 끝나는 경우 ; 보정
-#     if re.search(r"goods/services\s*$", text, re.IGNORECASE):
-#         print("[STEP 6] ends with 'goods/services'")
-#         if not text.rstrip().endswith((';', '.')):
-#             text = text.rstrip() + ";"
-#             print(f"         append ';' -> '{text}'")
-#
-#     # 7️⃣ 최종 정리
-#     text = text.strip()
-#     print(f"[NORMALIZE END] RESULT = '{text}'")
-#
-#     return text
-#
-# def should_exclude_underlined_text(text: str) -> bool:
-#     """
-#     밑줄 텍스트가 '상품 정보가 아닌 경우' 제외하기 위한 판단 함수
-#     """
-#
-#     print("\n[EXCLUDE CHECK START]")
-#     print(f"INPUT TEXT: '{text}'")
-#
-#     stripped = text.strip()
-#     print(f"[STEP 1] stripped -> '{stripped}'")
-#
-#     # 1️⃣ << ... >> 형태 (메타/주석)
-#     if re.fullmatch(r"<<\s*[^<>]+\s*>>", stripped):
-#         print("[EXCLUDE] matched << >> pattern")
-#         return True
-#
-#     # 2️⃣ 연락처 관련 키워드 포함 여부
-#     if re.search(r"\b(Fax|Tel\.?|Telephone|E-mail|Email)\b", stripped, re.IGNORECASE):
-#         print("[EXCLUDE] contact keyword detected (Fax/Tel/Email)")
-#         return True
-#
-#     # 3️⃣ 이메일 주소 포함
-#     if "@" in stripped:
-#         print("[EXCLUDE] '@' detected (email)")
-#         return True
-#
-#     # 4️⃣ 심사관 직책 단독 텍스트
-#     if stripped in ["심사관 파트장 팀장 국장", "심사관 팀장 국장"]:
-#         print("[EXCLUDE] examiner title only")
-#         return True
-#
-#     print("[KEEP] valid underlined text")
-#     return False
-#
-# def merge_by_semicolon(results):
-#     """
-#     세미콜론(;) 또는 마침표(.) 기준으로 밑줄 텍스트를 병합하는 함수
-#     - 결과물에는 ; / . 을 제거하지 않고 그대로 유지
-#     - 페이지가 바뀌면 무조건 flush
-#     """
-#
-#     print("\n================ MERGE BY SEMICOLON START ================\n")
-#
-#     merged = []            # 최종 병합 결과 리스트
-#     current_text = ""      # 현재 누적 중인 텍스트
-#     current_page = None    # 현재 처리 중인 페이지
-#     current_class = None   # 현재 누적 중인 class
-#
-#     # 1️⃣ underline 결과 하나씩 순회
-#     for idx, item in enumerate(results, 1):
-#         text = item["text"]
-#         page = item["page"]
-#         class_num = item.get("class")
-#
-#         print(f"[{idx}] INPUT ITEM")
-#         print(f"    page  : {page}")
-#         print(f"    text  : '{text}'")
-#         print(f"    class : {class_num}")
-#
-#         # 2️⃣ 직함/서명 관련 텍스트 제거
-#         if text in ['심사관', '파트장', '팀장', '국장', '팀장 국장']:
-#             print("    ❌ 직함 텍스트 → skip")
-#             continue
-#
-#         # 3️⃣ 페이지 변경 감지 → 이전 누적 데이터 flush
-#         if current_page is not None and page != current_page:
-#             print("    🔄 페이지 변경 감지")
-#
-#             if current_text:
-#                 print(f"    ▶ flush (page={current_page}) : '{current_text}'")
-#                 merged.append({
-#                     "page": current_page,
-#                     "text": current_text.strip(),  # ❗ 끝 문자 제거 안 함
-#                     "class": current_class
-#                 })
-#
-#                 current_text = ""
-#                 current_class = None
-#
-#         # 현재 페이지 갱신
-#         current_page = page
-#
-#         # 4️⃣ class 설정 (처음 한 번만)
-#         if class_num and not current_class:
-#             current_class = class_num
-#             print(f"    📌 class 설정: {current_class}")
-#
-#         # 5️⃣ 텍스트 누적
-#         if current_text:
-#             current_text += " " + text
-#         else:
-#             current_text = text
-#
-#         print(f"    ➕ 누적 텍스트: '{current_text}'")
-#
-#         # 6️⃣ 병합 종료 조건 (; 또는 .)
-#         if current_text.rstrip().endswith(";") or current_text.rstrip().endswith("."):
-#             print("    ✅ 병합 종료 조건 충족 (; or .)")
-#
-#             merged.append({
-#                 "page": page,
-#                 "text": current_text,  # ❗ 그대로 유지
-#                 "class": current_class or class_num
-#             })
-#
-#             print(f"    ▶ append: '{current_text}'")
-#
-#             # 누적 상태 초기화
-#             current_text = ""
-#             current_class = None
-#             continue
-#
-#     # 7️⃣ 루프 종료 후 잔여 데이터 처리
-#     if current_text:
-#         print("\n🧹 마지막 잔여 데이터 flush")
-#         print(f"    page={current_page}, text='{current_text}'")
-#
-#         merged.append({
-#             "page": current_page,
-#             "text": current_text.strip(),
-#             "class": current_class
-#         })
-#
-#     print("\n================ MERGE RESULT ================\n")
-#     for m in merged:
-#         print(m)
-#
-#     print("\n================ MERGE END ================\n")
-#     return merged
-#
-# def split_products(merged_results):
-#     """
-#     병합된 밑줄 텍스트를 실제 상품 단위로 분리하는 함수
-#
-#     분리 규칙:
-#     1. 세미콜론(;)이 있으면 ; 기준 분리
-#     2. 세미콜론이 없고 콤마(,)가 있으면 , 기준 분리
-#     3. 구분자가 없으면 하나의 상품으로 처리
-#     """
-#
-#     print("\n================ SPLIT PRODUCTS START ================\n")
-#
-#     final_results = []
-#
-#     # 1️⃣ 병합된 결과 하나씩 처리
-#     for idx, item in enumerate(merged_results, 1):
-#         page = item["page"]
-#         text = item["text"]
-#         class_num = item.get("class")
-#
-#         print(f"[{idx}] INPUT MERGED ITEM")
-#         print(f"    page  : {page}")
-#         print(f"    text  : '{text}'")
-#         print(f"    class : {class_num}")
-#
-#         # 2️⃣ [Class XX] 같은 접두어 제거
-#         text_without_class = remove_class_prefix(text)
-#         print(f"    after remove_class_prefix: '{text_without_class}'")
-#
-#         # 3️⃣ 세미콜론 기준 분리
-#         if ";" in text_without_class:
-#             print("    🔹 split by ';'")
-#             parts = [
-#                 p.strip().replace(".", "")
-#                 for p in text_without_class.split(";")
-#                 if p.strip()
-#             ]
-#
-#         # 4️⃣ 세미콜론 없으면 콤마 기준 분리
-#         elif "," in text_without_class:
-#             print("    🔹 split by ','")
-#             parts = [
-#                 p.strip().replace(".", "")
-#                 for p in text_without_class.split(",")
-#                 if p.strip()
-#             ]
-#
-#         # 5️⃣ 구분자 자체가 없는 경우
-#         else:
-#             print("    🔹 no delimiter → single item")
-#             parts = [
-#                 text_without_class.strip().replace(".", "")
-#             ]
-#
-#         print(f"    ▶ split result parts: {parts}")
-#
-#         # 6️⃣ 결과 누적
-#         for part in parts:
-#             final_item = {
-#                 "page": page,
-#                 "text": part,
-#                 "class": class_num
-#             }
-#             print(f"    ➕ append final item: {final_item}")
-#
-#             final_results.append(final_item)
-#
-#     print("\n================ SPLIT PRODUCTS RESULT ================\n")
-#     for r in final_results:
-#         print(r)
-#
-#     print("\n================ SPLIT PRODUCTS END ================\n")
-#     return final_results
-#
-# def remove_class_prefix(text: str) -> str:
-#     """
-#     텍스트 앞에 붙은 [Class XX] 패턴을 제거하는 함수
-#     예:
-#       "[Class 10] Shampoos" → "Shampoos"
-#     """
-#
-#     print(f"    🔧 remove_class_prefix input: '{text}'")
-#
-#     cleaned = re.sub(
-#         r'\[Class\s+\d+\]\s*',  # [Class 10] 패턴
-#         '',
-#         text,
-#         flags=re.IGNORECASE
-#     ).strip()
-#
-#     print(f"    🔧 remove_class_prefix output: '{cleaned}'")
-#
-#     return cleaned
-#
-# def print_results(results):
-#     """결과를 보기 좋게 출력"""
-#
-#     print("\n" + "=" * 80)
-#     print("상표별 밑줄 상품 분석 결과")
-#     print("=" * 80 + "\n")
-#
-#     for idx, r in enumerate(results, 1):
-#         print(f"[{idx}] 상표 정보 (Earlier Mark {r.get('mark_number', '?')})")
-#
-#         if r['filing_number']:
-#             print(f"    Filing Number: {r['filing_number']}")
-#         if r['international_registration']:
-#             print(f"    International Registration: {r['international_registration']}")
-#
-#         print(f"    Underlined Goods: {len(r['underlined_goods'])}개")
-#
-#         if r['underlined_goods']:
-#             print(f"\n    밑줄 친 상품 목록:")
-#             for i, goods_item in enumerate(r['underlined_goods'], 1):
-#                 class_info = f"[Class {goods_item['class']}] " if goods_item['class'] else ""
-#                 print(f"      {i}. {class_info}{goods_item['goods']}")
-#         else:
-#             print(f"    (밑줄 없음)")
-#
-#         print()
-#
-# def main(pdf_path):
-#     """메인 실행 함수"""
-#     print("=" * 80)
-#     print(f"\n파일 분석 중: {pdf_path}")
-#
-#     sections = extract_trademark_sections(pdf_path)
-#     underlines = extract_underlined_with_positions(pdf_path)
-#     results = match_underlines_to_sections(sections, underlines)
-#     print(f"\n{results}\n")
-#
-#     print_results(results)
-#
-#     return results
-#
-# if __name__ == "__main__":
-#     if len(sys.argv) > 1:
-#         path = sys.argv[1]
-#     else:
-#         path = r"/Users/jinam/Desktop/project/markpass/refusal/problem/552025075457917-01-복사.pdf"
-#
-#     if not Path(path).exists():
-#         print(f"파일 없음: {path}")
-#         sys.exit(1)
-#
-#     main(path)
-
+for i in range(1):
+    print("*"*100)
 
 """
-수정본
-2026.01.19 밑줄 데이터와 해당 밑줄이 포함된 풀텍스트 비교
+현재 가장 적합한 로직
+2026.01.16 ; 특수기호가 존재할 경우 ; 기준으로 데이터 분리 | ,가 있는 경우 , 기준으로 데이터 분리 => ;가 우선
+merge_by_semicolon, split_products
+PDF에서 밑줄 친 텍스트를 추출하고
+해당 밑줄이 속한 상표(Filing number/International registration number)와 연결
 """
 
 import re
@@ -2995,54 +2145,86 @@ import sys
 from pathlib import Path
 
 def extract_trademark_sections(pdf_path):
+    """
+    PDF에서 'Information concerning the earlier mark' 섹션을 기준으로
+    각 상표(Earlier Mark)의 범위를 추출하는 함수
+    """
+
+    # PDF 열기
     doc = fitz.open(pdf_path)
+
+    # 최종 섹션 결과
     sections = []
+
+    # ==================================================
+    # 1️⃣ 모든 페이지에서 텍스트 블록 수집
+    # ==================================================
     all_blocks = []
 
     for page_num, page in enumerate(doc):
+
+        # PyMuPDF dict 형태로 텍스트 추출
         blocks = page.get_text("dict")["blocks"]
-        for block in blocks:
+
+        for block_idx, block in enumerate(blocks):
+            # 텍스트 라인이 있는 블록만 사용
             if "lines" not in block:
                 continue
 
             block_text = ""
+
+            # 한 블록 안의 모든 span 텍스트를 하나로 합침
             for line in block["lines"]:
                 for span in line["spans"]:
                     block_text += span["text"] + " "
 
             block_text = block_text.strip()
 
-            all_blocks.append({
-                "page": page_num + 1,
-                "y0": block["bbox"][1],
-                "y1": block["bbox"][3],
-                "text": block_text
-            })
+            block_info = {
+                "page": page_num + 1,               # 페이지 번호
+                "y0": block["bbox"][1],             # 블록 시작 y좌표
+                "y1": block["bbox"][3],             # 블록 끝 y좌표
+                "text": block_text                  # 블록 전체 텍스트
+            }
 
+            all_blocks.append(block_info)
+
+    # ==================================================
+    # 2️⃣ 'Information concerning the earlier mark' 시작점 찾기
+    # ==================================================
     section_starts = []
 
     for idx, block in enumerate(all_blocks):
-        text_cleaned = block["text"].replace("□", "").replace("☐", "").strip()
+        text = block["text"]
 
+        # PDF 체크박스 기호 제거
+        text_cleaned = text.replace("□", "").replace("☐", "").strip()
+
+        # 패턴 1️⃣ 번호가 있는 경우: (1), (2) ...
         match = re.search(
             r"Information\s+concerning\s+the\s+earlier\s+mark\s*\((\d+)\)",
             text_cleaned,
             re.IGNORECASE
         )
+
         if match:
+            mark_number = int(match.group(1))
+
             section_starts.append({
                 "index": idx,
-                "mark_number": int(match.group(1)),
+                "mark_number": mark_number,
                 "page": block["page"],
                 "y": block["y0"]
             })
             continue
 
+        # 패턴 2️⃣ 번호 없는 경우 (단일 상표 문서)
         match = re.search(
             r"Information\s+concerning\s+the\s+earlier\s+mark\s*$",
             text_cleaned,
             re.IGNORECASE
         )
+
         if match:
             section_starts.append({
                 "index": idx,
@@ -3051,28 +2233,41 @@ def extract_trademark_sections(pdf_path):
                 "y": block["y0"]
             })
 
+    # ==================================================
+    # 3️⃣ 섹션 시작점이 아예 없는 PDF 처리
+    # ==================================================
     if not section_starts:
-        full_text = " ".join(b["text"] for b in all_blocks)
+
+        full_text = " ".join([block["text"] for block in all_blocks])
 
         filing_match = re.search(r"Filing number\s*:\s*(\d+)", full_text)
+        filing_number = filing_match.group(1) if filing_match else None
+
         ir_match = re.search(
             r"International\s+(?:Registration|registration)[/\s]+"
             r"Subsequent\s+Designation\s+No[.\s]*:?\s*(\d+)",
             full_text
         )
+        international_registration = ir_match.group(1) if ir_match else None
 
         doc.close()
+
         return [{
             "mark_number": 1,
-            "filing_number": filing_match.group(1) if filing_match else None,
-            "international_registration": ir_match.group(1) if ir_match else None,
+            "filing_number": filing_number,
+            "international_registration": international_registration,
             "page_start": 1,
             "page_end": all_blocks[-1]["page"] if all_blocks else 1,
             "y_start": 0,
-            "y_end": float("inf")
+            "y_end": float('inf')
         }]
 
+    # ==================================================
+    # 4️⃣ 각 섹션의 범위 계산 + 정보 추출
+    # ==================================================
     for i, start in enumerate(section_starts):
+
+        # 다음 섹션이 있으면 거기 전까지
         if i + 1 < len(section_starts):
             end_idx = section_starts[i + 1]["index"]
             end_page = section_starts[i + 1]["page"]
@@ -3082,21 +2277,27 @@ def extract_trademark_sections(pdf_path):
             end_page = all_blocks[-1]["page"]
             end_y = all_blocks[-1]["y1"]
 
+        # 해당 섹션 텍스트 전체 합치기
         section_text = " ".join(
             all_blocks[j]["text"] for j in range(start["index"], end_idx)
         )
 
+        # Filing number 추출
         filing_match = re.search(r"Filing\s+number\s*:\s*(\d+)", section_text)
+        filing_number = filing_match.group(1) if filing_match else None
+
+        # International registration number 추출
         ir_match = re.search(
             r"International\s+registration\s+number\s*:\s*(\d+)",
             section_text,
             re.IGNORECASE
         )
+        international_registration = ir_match.group(1) if ir_match else None
 
         sections.append({
             "mark_number": start["mark_number"],
-            "filing_number": filing_match.group(1) if filing_match else None,
-            "international_registration": ir_match.group(1) if ir_match else None,
+            "filing_number": filing_number,
+            "international_registration": international_registration,
             "page_start": start["page"],
             "page_end": end_page,
             "y_start": start["y"],
@@ -3104,161 +2305,188 @@ def extract_trademark_sections(pdf_path):
         })
 
     doc.close()
+
     return sections
 
 def extract_underlined_with_positions(pdf_path):
+    """
+    PDF에서 '밑줄(underline)'에 해당하는 수평선을 직접 탐지하고,
+    해당 수평선 바로 위에 위치한 텍스트를 추출한 뒤
+    같은 줄의 전체 텍스트에서 밑줄 부분을 <u> 태그로 감싼다.
+
+    ✔ underline style 미사용
+    ✔ 실제 draw된 수평선(line) 기준
+    ✔ underline = anchor
+    ✔ <u>는 full line 기준 적용
+    """
+
+    # ==================================================
+    # 0️⃣ PDF 파일 오픈
+    # ==================================================
     doc = fitz.open(pdf_path)
     results = []
 
-    # 🔹 전체 block 수집 (풀텍스트 비교용)
-    all_blocks = []
-    for page_num, page in enumerate(doc):
-        blocks = page.get_text("dict")["blocks"]
-        for block in blocks:
-            if "lines" not in block:
-                continue
-
-            text = ""
-            for line in block["lines"]:
-                for span in line["spans"]:
-                    text += span["text"] + " "
-
-            all_blocks.append({
-                "page": page_num + 1,
-                "y0": block["bbox"][1],
-                "y1": block["bbox"][3],
-                "text": text.strip()
-            })
-
-    page_blocks = build_page_blocks(all_blocks)
-
-    # 🔹 underline 추출
+    # ==================================================
+    # 1️⃣ 페이지 단위 순회
+    # ==================================================
     for page_num, page in enumerate(doc):
         drawings = page.get_drawings()
         lines = []
 
+        # ==================================================
+        # 2️⃣ 수평선(underline) 탐색
+        # ==================================================
         for d in drawings:
             for item in d.get("items", []):
                 if item[0] == "l":
                     p1, p2 = item[1], item[2]
+
+                    # 수평선 판별
                     if abs(p1.y - p2.y) < 2:
                         length = abs(p2.x - p1.x)
+
+                        # underline 후보 길이 제한
                         if 10 < length < 500:
                             lines.append({
                                 "y": p1.y,
                                 "x0": min(p1.x, p2.x),
-                                "x1": max(p1.x, p2.x)
+                                "x1": max(p1.x, p2.x),
                             })
 
-        for line in lines:
-            rect = fitz.Rect(
+        # ==================================================
+        # 3️⃣ 각 밑줄 기준 텍스트 추출
+        # ==================================================
+        for idx, line in enumerate(lines):
+
+            # ------------------------------------------
+            # (1) 밑줄 바로 위 영역 (anchor text)
+            # ------------------------------------------
+            anchor_rect = fitz.Rect(
                 line["x0"] - 1,
                 line["y"] - 12,
                 line["x1"] + 1,
-                line["y"] + 1
+                line["y"] + 1,
             )
 
-            raw_text = page.get_text("text", clip=rect)
-            text = " ".join(raw_text.strip().split())
-
-            if not text or should_exclude_underlined_text(text):
+            raw_text = page.get_text("text", clip=anchor_rect)
+            if raw_text == '심사관\n파트장\n팀장\n국장\n':
                 continue
 
-            normalized = normalize_underlined_text(text)
+            anchor_text = " ".join(raw_text.strip().split())
 
-            # 🔍 풀텍스트(block) 매칭
-            candidate_blocks = [
-                b["text"]
-                for b in page_blocks.get(page_num + 1, [])
-                if b["y0"] <= line["y"] <= b["y1"] + 5
-            ]
+            if not anchor_text:
+                continue
 
-            print("\n" + "-" * 80)
-            print(f"[UNDERLINE] page={page_num + 1}, y={line['y']:.2f}")
-            print(f"  ▶ underline text : {normalized}")
-            print("  ▶ matched fulltext blocks:")
-            for b in candidate_blocks:
-                print(f"    - {b}")
+            # ------------------------------------------
+            # (2) 같은 줄 전체 텍스트 (page width)
+            # ------------------------------------------
+            full_rect = fitz.Rect(
+                0,
+                line["y"] - 12,
+                page.rect.width,
+                line["y"] + 1,
+            )
 
-            results.append({
+            full_raw_text = page.get_text("text", clip=full_rect)
+            full_text = " ".join(full_raw_text.strip().split())
+
+            if not full_text:
+                continue
+
+            # ==================================================
+            # 4️⃣ Class 정보 추출
+            # ==================================================
+            match = re.search(r'\[Class\s+(\d+)\]', full_text, re.IGNORECASE)
+            class_num = match.group(1) if match else None
+
+            # ==================================================
+            # 5️⃣ 밑줄 텍스트 정규화
+            # ==================================================
+            normalized_text = normalize_underlined_text(
+                anchor_text,
+                remove_class=False
+            )
+
+            # ==================================================
+            # 6️⃣ 제외 대상 검사
+            # ==================================================
+            if should_exclude_underlined_text(normalized_text):
+                continue
+
+            # underline 대상 텍스트에서 끝 구분자 제거
+            m = re.match(r"^(.*?)([;.]?)$", normalized_text)
+            underline_core = m.group(1)
+            delimiter = m.group(2)
+
+            if underline_core and underline_core in full_text:
+                tagged_text = full_text.replace(
+                    underline_core + delimiter,
+                    f"<u>{underline_core}</u>{delimiter}",
+                    1
+                )
+            else:
+                tagged_text = f"<u>{underline_core}</u>{delimiter}"
+
+            # ==================================================
+            # 8️⃣ 결과 저장
+            # ==================================================
+            result_item = {
                 "page": page_num + 1,
                 "y": line["y"],
-                "text": normalized,
-                "class": None
-            })
+                "text": normalized_text,   # underline text
+                "full_text": full_text,    # 전체 라인
+                "tagged_text": tagged_text,  # <u> 적용
+                "class": class_num,
+            }
 
+            results.append(result_item)
+
+    # ==================================================
+    # 9️⃣ PDF 닫기
+    # ==================================================
     doc.close()
+
     return results
 
 def match_underlines_to_sections(sections, underlines):
-    """
-    밑줄 데이터를 상표 섹션에 매칭하는 함수
-
-    흐름:
-    1. 상표 섹션(page_start ~ page_end, y_start ~ y_end) 순회
-    2. 해당 섹션에 포함되는 밑줄 데이터만 필터링
-    3. 세미콜론 기준 병합
-    4. 최종 상품 단위로 분리
-    """
-
     results = []
 
-    # 1️⃣ 상표 섹션 단위 순회
-    for s_idx, section in enumerate(sections, 1):
+    for section in sections:
+        seen = set()
+        goods_list = []
 
+        # 1️⃣ 섹션에 속하는 underline 먼저 수집
         section_underlines = []
-
-        # 2️⃣ 모든 밑줄 데이터 순회
-        for u_idx, u in enumerate(underlines, 1):
-
-            # 2-1️⃣ 페이지 범위 체크
-            in_page_range = (
-                section["page_start"] <= u["page"] <= section["page_end"]
-            )
-
-            if not in_page_range:
+        for u in underlines:
+            if not (section["page_start"] <= u["page"] <= section["page_end"]):
                 continue
-
-            # 2-2️⃣ 시작 페이지 y 범위 체크
             if u["page"] == section["page_start"] and u["y"] < section["y_start"]:
                 continue
-
-            # 2-3️⃣ 종료 페이지 y 범위 체크
             if u["page"] == section["page_end"] and u["y"] >= section["y_end"]:
                 continue
 
-            # 2-4️⃣ 조건 통과 → 섹션에 포함
             section_underlines.append(u)
 
-        # 3️⃣ 병합 + 분리
-        if section_underlines:
-            merged = merge_by_semicolon(section_underlines)
+        # 2️⃣ 🔥 여기서 underline 병합
+        section_underlines = merge_multiline_underlines(section_underlines)
 
-            final_goods = split_products(merged)
+        # 3️⃣ 이제 안전하게 tagged_text 파싱
+        for u in section_underlines:
+            goods = extract_goods_from_tagged_text(u["tagged_text"])
+            for g in goods:
+                if g not in seen:
+                    seen.add(g)
+                    goods_list.append({
+                        "class": u.get("class"),
+                        "goods": g
+                    })
 
-            # 4️⃣ 최종 goods 리스트 구성
-            goods_list = []
-            for item in final_goods:
-                goods_text = item["text"].strip()
-                class_num = item.get("class")
-
-                goods_list.append({
-                    "class": class_num,
-                    "goods": goods_text
-                })
-
-        else:
-            goods_list = []
-
-        # 5️⃣ 섹션 결과 저장
-        section_result = {
+        results.append({
             "mark_number": section.get("mark_number"),
             "filing_number": section["filing_number"],
             "international_registration": section["international_registration"],
             "underlined_goods": goods_list
-        }
-
-        results.append(section_result)
+        })
 
     return results
 
@@ -3269,7 +2497,6 @@ def normalize_underlined_text(text: str, remove_class: bool = False) -> str:
     - goods/services 형태 보정
     - Class 제거 옵션 처리
     """
-
     # 1️⃣ 앞뒤 공백 제거
     text = text.strip()
 
@@ -3399,6 +2626,7 @@ def merge_by_semicolon(results):
 
     # 7️⃣ 루프 종료 후 잔여 데이터 처리
     if current_text:
+
         merged.append({
             "page": current_page,
             "text": current_text.strip(),
@@ -3416,7 +2644,6 @@ def split_products(merged_results):
     2. 세미콜론이 없고 콤마(,)가 있으면 , 기준 분리
     3. 구분자가 없으면 하나의 상품으로 처리
     """
-
     final_results = []
 
     # 1️⃣ 병합된 결과 하나씩 처리
@@ -3427,7 +2654,6 @@ def split_products(merged_results):
 
         # 2️⃣ [Class XX] 같은 접두어 제거
         text_without_class = remove_class_prefix(text)
-
         # 3️⃣ 세미콜론 기준 분리
         if ";" in text_without_class:
             parts = [
@@ -3478,63 +2704,82 @@ def remove_class_prefix(text: str) -> str:
 
     return cleaned
 
-def build_page_blocks(all_blocks):
-    page_blocks = {}
-    for b in all_blocks:
-        page_blocks.setdefault(b["page"], []).append(b)
-    return page_blocks
-
-def underline_fulltext_blocks(merged_underlines, page_blocks):
+def merge_multiline_underlines(underlines, y_gap=20):
     """
-    병합된 밑줄 데이터를 기준으로
-    풀텍스트(block)에 <u> 태그를 적용 (print용)
-
-    merged_underlines: merge_by_semicolon 결과
-    page_blocks: build_page_blocks(all_blocks) 결과
+    줄바꿈된 underline을 하나의 상품으로 병합
     """
+    underlines = sorted(underlines, key=lambda x: (x["page"], x["y"]))
+    merged = []
 
-    print("\n" + "=" * 80)
-    print("UNDERLINE ↔ FULLTEXT MATCH WITH <u> TAG")
-    print("=" * 80)
+    buffer = None
 
-    for u in merged_underlines:
-        page = u["page"]
-        merged_text = remove_class_prefix(u["text"])
+    for u in underlines:
+        if buffer is None:
+            buffer = u.copy()
+            continue
 
-        # 세미콜론 기준으로 실제 밑줄 fragment 분리
-        fragments = [
-            f.strip()
-            for f in re.split(r";|,", merged_text)
-            if f.strip()
-        ]
+        same_page = buffer["page"] == u["page"]
+        close_y = abs(u["y"] - buffer["y"]) < y_gap
 
-        print(f"\n[PAGE {page}]")
-        print(f"▶ merged underline: {merged_text}")
-        print(f"▶ fragments: {fragments}")
+        # 🔥 이전 underline이 문장 종료가 아니면 병합
+        no_end = not buffer["text"].strip().endswith((';', '.'))
 
-        for block in page_blocks.get(page, []):
-            original = block["text"]
-            highlighted = original
+        if same_page and close_y and no_end:
+            buffer["text"] = buffer["text"].rstrip(';') + " " + u["text"].lstrip()
 
-            matched = False
-            for frag in fragments:
-                # 공백/대소문자 차이 완화
-                pattern = re.escape(frag)
-                if re.search(pattern, highlighted, re.IGNORECASE):
-                    highlighted = re.sub(
-                        pattern,
-                        r"<u>\g<0></u>",
-                        highlighted,
-                        flags=re.IGNORECASE
-                    )
-                    matched = True
+            buffer["tagged_text"] = (
+                buffer["tagged_text"].replace("</u>", "") +
+                " " +
+                u["tagged_text"].replace("<u>", "")
+            )
 
-            if matched:
-                print("\n--- FULLTEXT BLOCK (MATCHED) ---")
-                print("ORIGINAL:")
-                print(original)
-                print("WITH <u>:")
-                print(highlighted)
+            buffer["y"] = u["y"]
+        else:
+            merged.append(buffer)
+            buffer = u.copy()
+
+    if buffer:
+        merged.append(buffer)
+
+    return merged
+
+def extract_goods_from_tagged_text(tagged_text: str) -> list[str]:
+    """
+    규칙:
+    1. ; 또는 . 기준으로 1차 분리
+    2. <u>가 포함된 조각만 대상
+    3. 연속된 <u> 조각은 하나의 상품으로 병합
+    4. <u> 태그는 유지
+    """
+    goods = []
+
+    # 1️⃣ 1차 분리
+    parts = re.split(r'[;.]', tagged_text)
+
+    buffer = None  # 병합용 버퍼
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        if "<u>" in part:
+            if buffer is None:
+                buffer = part
+            else:
+                # 🔥 delimiter 없이 연속 underline → 병합
+                buffer = buffer.replace("</u>", "") + " " + part.replace("<u>", "")
+        else:
+            # underline 없는 조각을 만나면 버퍼 확정
+            if buffer:
+                goods.append(buffer.strip())
+                buffer = None
+
+    # 마지막 버퍼 처리
+    if buffer:
+        goods.append(buffer.strip())
+
+    return goods
 
 def print_results(results):
     """결과를 보기 좋게 출력"""
@@ -3564,55 +2809,664 @@ def print_results(results):
         print()
 
 def main(pdf_path):
+    """메인 실행 함수"""
     print("=" * 80)
     print(f"\n파일 분석 중: {pdf_path}")
 
-    # 섹션
     sections = extract_trademark_sections(pdf_path)
-
-    # underline 원본
+    print(sections)
     underlines = extract_underlined_with_positions(pdf_path)
-
-    # 🔹 전체 block 다시 수집 (fulltext)
-    doc = fitz.open(pdf_path)
-    all_blocks = []
-    for page_num, page in enumerate(doc):
-        for block in page.get_text("dict")["blocks"]:
-            if "lines" not in block:
-                continue
-            text = ""
-            for line in block["lines"]:
-                for span in line["spans"]:
-                    text += span["text"] + " "
-            all_blocks.append({
-                "page": page_num + 1,
-                "y0": block["bbox"][1],
-                "y1": block["bbox"][3],
-                "text": text.strip()
-            })
-    doc.close()
-
-    page_blocks = build_page_blocks(all_blocks)
-
-    # 🔹 섹션 매칭
+    print(underlines)
     results = match_underlines_to_sections(sections, underlines)
 
-    # 🔹 <u> 비교용 출력
-    merged = merge_by_semicolon(underlines)
-    underline_fulltext_blocks(merged, page_blocks)
-
     print_results(results)
-    return results
 
+    return results
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         path = sys.argv[1]
     else:
-        path = r"/Users/jinam/Desktop/project/markpass/refusal/problem/552025075457917-01-복사.pdf"
+        path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075457917-01-복사.pdf"
 
     if not Path(path).exists():
         print(f"파일 없음: {path}")
         sys.exit(1)
 
     main(path)
+
+for i in range(1):
+    print("*"*100)
+
+# """
+# 수정본
+# 2026.01.19 밑줄 데이터와 해당 밑줄이 포함된 풀텍스트 비교
+# """
+#
+# import re
+# import fitz
+# import sys
+# from pathlib import Path
+#
+# def extract_trademark_sections(pdf_path):
+#     doc = fitz.open(pdf_path)
+#     sections = []
+#     all_blocks = []
+#
+#     for page_num, page in enumerate(doc):
+#         blocks = page.get_text("dict")["blocks"]
+#         for block in blocks:
+#             if "lines" not in block:
+#                 continue
+#
+#             block_text = ""
+#             for line in block["lines"]:
+#                 for span in line["spans"]:
+#                     block_text += span["text"] + " "
+#
+#             block_text = block_text.strip()
+#
+#             all_blocks.append({
+#                 "page": page_num + 1,
+#                 "y0": block["bbox"][1],
+#                 "y1": block["bbox"][3],
+#                 "text": block_text
+#             })
+#
+#     section_starts = []
+#
+#     for idx, block in enumerate(all_blocks):
+#         text_cleaned = block["text"].replace("□", "").replace("☐", "").strip()
+#
+#         match = re.search(
+#             r"Information\s+concerning\s+the\s+earlier\s+mark\s*\((\d+)\)",
+#             text_cleaned,
+#             re.IGNORECASE
+#         )
+#         if match:
+#             section_starts.append({
+#                 "index": idx,
+#                 "mark_number": int(match.group(1)),
+#                 "page": block["page"],
+#                 "y": block["y0"]
+#             })
+#             continue
+#
+#         match = re.search(
+#             r"Information\s+concerning\s+the\s+earlier\s+mark\s*$",
+#             text_cleaned,
+#             re.IGNORECASE
+#         )
+#         if match:
+#             section_starts.append({
+#                 "index": idx,
+#                 "mark_number": 1,
+#                 "page": block["page"],
+#                 "y": block["y0"]
+#             })
+#
+#     if not section_starts:
+#         full_text = " ".join(b["text"] for b in all_blocks)
+#
+#         filing_match = re.search(r"Filing number\s*:\s*(\d+)", full_text)
+#         ir_match = re.search(
+#             r"International\s+(?:Registration|registration)[/\s]+"
+#             r"Subsequent\s+Designation\s+No[.\s]*:?\s*(\d+)",
+#             full_text
+#         )
+#
+#         doc.close()
+#         return [{
+#             "mark_number": 1,
+#             "filing_number": filing_match.group(1) if filing_match else None,
+#             "international_registration": ir_match.group(1) if ir_match else None,
+#             "page_start": 1,
+#             "page_end": all_blocks[-1]["page"] if all_blocks else 1,
+#             "y_start": 0,
+#             "y_end": float("inf")
+#         }]
+#
+#     for i, start in enumerate(section_starts):
+#         if i + 1 < len(section_starts):
+#             end_idx = section_starts[i + 1]["index"]
+#             end_page = section_starts[i + 1]["page"]
+#             end_y = section_starts[i + 1]["y"]
+#         else:
+#             end_idx = len(all_blocks)
+#             end_page = all_blocks[-1]["page"]
+#             end_y = all_blocks[-1]["y1"]
+#
+#         section_text = " ".join(
+#             all_blocks[j]["text"] for j in range(start["index"], end_idx)
+#         )
+#
+#         filing_match = re.search(r"Filing\s+number\s*:\s*(\d+)", section_text)
+#         ir_match = re.search(
+#             r"International\s+registration\s+number\s*:\s*(\d+)",
+#             section_text,
+#             re.IGNORECASE
+#         )
+#
+#         sections.append({
+#             "mark_number": start["mark_number"],
+#             "filing_number": filing_match.group(1) if filing_match else None,
+#             "international_registration": ir_match.group(1) if ir_match else None,
+#             "page_start": start["page"],
+#             "page_end": end_page,
+#             "y_start": start["y"],
+#             "y_end": end_y
+#         })
+#
+#     doc.close()
+#     return sections
+#
+# def extract_underlined_with_positions(pdf_path):
+#     doc = fitz.open(pdf_path)
+#     results = []
+#
+#     # 🔹 전체 block 수집 (풀텍스트 비교용)
+#     all_blocks = []
+#     for page_num, page in enumerate(doc):
+#         blocks = page.get_text("dict")["blocks"]
+#         for block in blocks:
+#             if "lines" not in block:
+#                 continue
+#
+#             text = ""
+#             for line in block["lines"]:
+#                 for span in line["spans"]:
+#                     text += span["text"] + " "
+#
+#             all_blocks.append({
+#                 "page": page_num + 1,
+#                 "y0": block["bbox"][1],
+#                 "y1": block["bbox"][3],
+#                 "text": text.strip()
+#             })
+#
+#     page_blocks = build_page_blocks(all_blocks)
+#
+#     # 🔹 underline 추출
+#     for page_num, page in enumerate(doc):
+#         drawings = page.get_drawings()
+#         lines = []
+#
+#         for d in drawings:
+#             for item in d.get("items", []):
+#                 if item[0] == "l":
+#                     p1, p2 = item[1], item[2]
+#                     if abs(p1.y - p2.y) < 2:
+#                         length = abs(p2.x - p1.x)
+#                         if 10 < length < 500:
+#                             lines.append({
+#                                 "y": p1.y,
+#                                 "x0": min(p1.x, p2.x),
+#                                 "x1": max(p1.x, p2.x)
+#                             })
+#
+#         for line in lines:
+#             rect = fitz.Rect(
+#                 line["x0"] - 1,
+#                 line["y"] - 12,
+#                 line["x1"] + 1,
+#                 line["y"] + 1
+#             )
+#
+#             raw_text = page.get_text("text", clip=rect)
+#             text = " ".join(raw_text.strip().split())
+#
+#             if not text or should_exclude_underlined_text(text):
+#                 continue
+#
+#             normalized = normalize_underlined_text(text)
+#
+#             # 🔍 풀텍스트(block) 매칭
+#             candidate_blocks = [
+#                 b["text"]
+#                 for b in page_blocks.get(page_num + 1, [])
+#                 if b["y0"] <= line["y"] <= b["y1"] + 5
+#             ]
+#
+#             print("\n" + "-" * 80)
+#             print(f"[UNDERLINE] page={page_num + 1}, y={line['y']:.2f}")
+#             print(f"  ▶ underline text : {normalized}")
+#             print("  ▶ matched fulltext blocks:")
+#             for b in candidate_blocks:
+#                 print(f"    - {b}")
+#
+#             results.append({
+#                 "page": page_num + 1,
+#                 "y": line["y"],
+#                 "text": normalized,
+#                 "class": None
+#             })
+#
+#     doc.close()
+#     return results
+#
+# def match_underlines_to_sections(sections, underlines):
+#     """
+#     밑줄 데이터를 상표 섹션에 매칭하는 함수
+#
+#     흐름:
+#     1. 상표 섹션(page_start ~ page_end, y_start ~ y_end) 순회
+#     2. 해당 섹션에 포함되는 밑줄 데이터만 필터링
+#     3. 세미콜론 기준 병합
+#     4. 최종 상품 단위로 분리
+#     """
+#
+#     results = []
+#
+#     # 1️⃣ 상표 섹션 단위 순회
+#     for s_idx, section in enumerate(sections, 1):
+#
+#         section_underlines = []
+#
+#         # 2️⃣ 모든 밑줄 데이터 순회
+#         for u_idx, u in enumerate(underlines, 1):
+#
+#             # 2-1️⃣ 페이지 범위 체크
+#             in_page_range = (
+#                 section["page_start"] <= u["page"] <= section["page_end"]
+#             )
+#
+#             if not in_page_range:
+#                 continue
+#
+#             # 2-2️⃣ 시작 페이지 y 범위 체크
+#             if u["page"] == section["page_start"] and u["y"] < section["y_start"]:
+#                 continue
+#
+#             # 2-3️⃣ 종료 페이지 y 범위 체크
+#             if u["page"] == section["page_end"] and u["y"] >= section["y_end"]:
+#                 continue
+#
+#             # 2-4️⃣ 조건 통과 → 섹션에 포함
+#             section_underlines.append(u)
+#
+#         # 3️⃣ 병합 + 분리
+#         if section_underlines:
+#             merged = merge_by_semicolon(section_underlines)
+#
+#             final_goods = split_products(merged)
+#
+#             # 4️⃣ 최종 goods 리스트 구성
+#             goods_list = []
+#             for item in final_goods:
+#                 goods_text = item["text"].strip()
+#                 class_num = item.get("class")
+#
+#                 goods_list.append({
+#                     "class": class_num,
+#                     "goods": goods_text
+#                 })
+#
+#         else:
+#             goods_list = []
+#
+#         # 5️⃣ 섹션 결과 저장
+#         section_result = {
+#             "mark_number": section.get("mark_number"),
+#             "filing_number": section["filing_number"],
+#             "international_registration": section["international_registration"],
+#             "underlined_goods": goods_list
+#         }
+#
+#         results.append(section_result)
+#
+#     return results
+#
+# def normalize_underlined_text(text: str, remove_class: bool = False) -> str:
+#     """
+#     밑줄 텍스트를 정규화하는 함수
+#     - 불필요한 prefix 제거
+#     - goods/services 형태 보정
+#     - Class 제거 옵션 처리
+#     """
+#
+#     # 1️⃣ 앞뒤 공백 제거
+#     text = text.strip()
+#
+#     # 2️⃣ 'all' 또는 'All' 단독인 경우 그대로 반환
+#     if re.fullmatch(r"(all|All)", text):
+#         return text
+#
+#     # 3️⃣ '(underlined goods)' 제거
+#     before = text
+#     text = re.sub(
+#         r"^\(\s*underlined goods\s*\)\s*",
+#         "",
+#         text,
+#         flags=re.IGNORECASE
+#     )
+#
+#     # 4️⃣ '(underlined goods/services)' 제거
+#     before = text
+#     text = re.sub(
+#         r"^\(\s*underlined goods/services\s*\)\s*",
+#         "",
+#         text,
+#         flags=re.IGNORECASE
+#     )
+#
+#     # 5️⃣ Class 제거 옵션
+#     if remove_class:
+#         before = text
+#         text = remove_class_prefix(text)
+#
+#     # 6️⃣ goods/services 로 끝나는 경우 ; 보정
+#     if re.search(r"goods/services\s*$", text, re.IGNORECASE):
+#         if not text.rstrip().endswith((';', '.')):
+#             text = text.rstrip() + ";"
+#
+#     # 7️⃣ 최종 정리
+#     text = text.strip()
+#
+#     return text
+#
+# def should_exclude_underlined_text(text: str) -> bool:
+#     """
+#     밑줄 텍스트가 '상품 정보가 아닌 경우' 제외하기 위한 판단 함수
+#     """
+#
+#     stripped = text.strip()
+#
+#     # 1️⃣ << ... >> 형태 (메타/주석)
+#     if re.fullmatch(r"<<\s*[^<>]+\s*>>", stripped):
+#         return True
+#
+#     # 2️⃣ 연락처 관련 키워드 포함 여부
+#     if re.search(r"\b(Fax|Tel\.?|Telephone|E-mail|Email)\b", stripped, re.IGNORECASE):
+#         return True
+#
+#     # 3️⃣ 이메일 주소 포함
+#     if "@" in stripped:
+#         return True
+#
+#     # 4️⃣ 심사관 직책 단독 텍스트
+#     if stripped in ["심사관 파트장 팀장 국장", "심사관 팀장 국장"]:
+#         return True
+#
+#     return False
+#
+# def merge_by_semicolon(results):
+#     """
+#     세미콜론(;) 또는 마침표(.) 기준으로 밑줄 텍스트를 병합하는 함수
+#     - 결과물에는 ; / . 을 제거하지 않고 그대로 유지
+#     - 페이지가 바뀌면 무조건 flush
+#     """
+#
+#     merged = []            # 최종 병합 결과 리스트
+#     current_text = ""      # 현재 누적 중인 텍스트
+#     current_page = None    # 현재 처리 중인 페이지
+#     current_class = None   # 현재 누적 중인 class
+#
+#     # 1️⃣ underline 결과 하나씩 순회
+#     for idx, item in enumerate(results, 1):
+#         text = item["text"]
+#         page = item["page"]
+#         class_num = item.get("class")
+#
+#         # 2️⃣ 직함/서명 관련 텍스트 제거
+#         if text in ['심사관', '파트장', '팀장', '국장', '팀장 국장']:
+#             continue
+#
+#         # 3️⃣ 페이지 변경 감지 → 이전 누적 데이터 flush
+#         if current_page is not None and page != current_page:
+#
+#             if current_text:
+#                 merged.append({
+#                     "page": current_page,
+#                     "text": current_text.strip(),  # ❗ 끝 문자 제거 안 함
+#                     "class": current_class
+#                 })
+#
+#                 current_text = ""
+#                 current_class = None
+#
+#         # 현재 페이지 갱신
+#         current_page = page
+#
+#         # 4️⃣ class 설정 (처음 한 번만)
+#         if class_num and not current_class:
+#             current_class = class_num
+#
+#         # 5️⃣ 텍스트 누적
+#         if current_text:
+#             current_text += " " + text
+#         else:
+#             current_text = text
+#
+#         # 6️⃣ 병합 종료 조건 (; 또는 .)
+#         if current_text.rstrip().endswith(";") or current_text.rstrip().endswith("."):
+#
+#             merged.append({
+#                 "page": page,
+#                 "text": current_text,  # ❗ 그대로 유지
+#                 "class": current_class or class_num
+#             })
+#
+#             # 누적 상태 초기화
+#             current_text = ""
+#             current_class = None
+#             continue
+#
+#     # 7️⃣ 루프 종료 후 잔여 데이터 처리
+#     if current_text:
+#         merged.append({
+#             "page": current_page,
+#             "text": current_text.strip(),
+#             "class": current_class
+#         })
+#
+#     return merged
+#
+# def split_products(merged_results):
+#     """
+#     병합된 밑줄 텍스트를 실제 상품 단위로 분리하는 함수
+#
+#     분리 규칙:
+#     1. 세미콜론(;)이 있으면 ; 기준 분리
+#     2. 세미콜론이 없고 콤마(,)가 있으면 , 기준 분리
+#     3. 구분자가 없으면 하나의 상품으로 처리
+#     """
+#
+#     final_results = []
+#
+#     # 1️⃣ 병합된 결과 하나씩 처리
+#     for idx, item in enumerate(merged_results, 1):
+#         page = item["page"]
+#         text = item["text"]
+#         class_num = item.get("class")
+#
+#         # 2️⃣ [Class XX] 같은 접두어 제거
+#         text_without_class = remove_class_prefix(text)
+#
+#         # 3️⃣ 세미콜론 기준 분리
+#         if ";" in text_without_class:
+#             parts = [
+#                 p.strip().replace(".", "")
+#                 for p in text_without_class.split(";")
+#                 if p.strip()
+#             ]
+#
+#         # 4️⃣ 세미콜론 없으면 콤마 기준 분리
+#         elif "," in text_without_class:
+#             parts = [
+#                 p.strip().replace(".", "")
+#                 for p in text_without_class.split(",")
+#                 if p.strip()
+#             ]
+#
+#         # 5️⃣ 구분자 자체가 없는 경우
+#         else:
+#             parts = [
+#                 text_without_class.strip().replace(".", "")
+#             ]
+#
+#         # 6️⃣ 결과 누적
+#         for part in parts:
+#             final_item = {
+#                 "page": page,
+#                 "text": part,
+#                 "class": class_num
+#             }
+#
+#             final_results.append(final_item)
+#
+#     return final_results
+#
+# def remove_class_prefix(text: str) -> str:
+#     """
+#     텍스트 앞에 붙은 [Class XX] 패턴을 제거하는 함수
+#     예:
+#       "[Class 10] Shampoos" → "Shampoos"
+#     """
+#
+#     cleaned = re.sub(
+#         r'\[Class\s+\d+\]\s*',  # [Class 10] 패턴
+#         '',
+#         text,
+#         flags=re.IGNORECASE
+#     ).strip()
+#
+#     return cleaned
+#
+# def build_page_blocks(all_blocks):
+#     page_blocks = {}
+#     for b in all_blocks:
+#         page_blocks.setdefault(b["page"], []).append(b)
+#     return page_blocks
+#
+# def underline_fulltext_blocks(merged_underlines, page_blocks):
+#     """
+#     병합된 밑줄 데이터를 기준으로
+#     풀텍스트(block)에 <u> 태그를 적용 (print용)
+#
+#     merged_underlines: merge_by_semicolon 결과
+#     page_blocks: build_page_blocks(all_blocks) 결과
+#     """
+#
+#     print("\n" + "=" * 80)
+#     print("UNDERLINE ↔ FULLTEXT MATCH WITH <u> TAG")
+#     print("=" * 80)
+#
+#     for u in merged_underlines:
+#         page = u["page"]
+#         merged_text = remove_class_prefix(u["text"])
+#
+#         # 세미콜론 기준으로 실제 밑줄 fragment 분리
+#         fragments = [
+#             f.strip()
+#             for f in re.split(r";|,", merged_text)
+#             if f.strip()
+#         ]
+#
+#         print(f"\n[PAGE {page}]")
+#         print(f"▶ merged underline: {merged_text}")
+#         print(f"▶ fragments: {fragments}")
+#
+#         for block in page_blocks.get(page, []):
+#             original = block["text"]
+#             highlighted = original
+#
+#             matched = False
+#             for frag in fragments:
+#                 # 공백/대소문자 차이 완화
+#                 pattern = re.escape(frag)
+#                 if re.search(pattern, highlighted, re.IGNORECASE):
+#                     highlighted = re.sub(
+#                         pattern,
+#                         r"<u>\g<0></u>",
+#                         highlighted,
+#                         flags=re.IGNORECASE
+#                     )
+#                     matched = True
+#
+#             if matched:
+#                 print("\n--- FULLTEXT BLOCK (MATCHED) ---")
+#                 print("ORIGINAL:")
+#                 print(original)
+#                 print("WITH <u>:")
+#                 print(highlighted)
+#
+# def print_results(results):
+#     """결과를 보기 좋게 출력"""
+#
+#     print("\n" + "=" * 80)
+#     print("상표별 밑줄 상품 분석 결과")
+#     print("=" * 80 + "\n")
+#
+#     for idx, r in enumerate(results, 1):
+#         print(f"[{idx}] 상표 정보 (Earlier Mark {r.get('mark_number', '?')})")
+#
+#         if r['filing_number']:
+#             print(f"    Filing Number: {r['filing_number']}")
+#         if r['international_registration']:
+#             print(f"    International Registration: {r['international_registration']}")
+#
+#         print(f"    Underlined Goods: {len(r['underlined_goods'])}개")
+#
+#         if r['underlined_goods']:
+#             print(f"\n    밑줄 친 상품 목록:")
+#             for i, goods_item in enumerate(r['underlined_goods'], 1):
+#                 class_info = f"[Class {goods_item['class']}] " if goods_item['class'] else ""
+#                 print(f"      {i}. {class_info}{goods_item['goods']}")
+#         else:
+#             print(f"    (밑줄 없음)")
+#
+#         print()
+#
+# def main(pdf_path):
+#     print("=" * 80)
+#     print(f"\n파일 분석 중: {pdf_path}")
+#
+#     # 섹션
+#     sections = extract_trademark_sections(pdf_path)
+#
+#     # underline 원본
+#     underlines = extract_underlined_with_positions(pdf_path)
+#
+#     # 🔹 전체 block 다시 수집 (fulltext)
+#     doc = fitz.open(pdf_path)
+#     all_blocks = []
+#     for page_num, page in enumerate(doc):
+#         for block in page.get_text("dict")["blocks"]:
+#             if "lines" not in block:
+#                 continue
+#             text = ""
+#             for line in block["lines"]:
+#                 for span in line["spans"]:
+#                     text += span["text"] + " "
+#             all_blocks.append({
+#                 "page": page_num + 1,
+#                 "y0": block["bbox"][1],
+#                 "y1": block["bbox"][3],
+#                 "text": text.strip()
+#             })
+#     doc.close()
+#
+#     page_blocks = build_page_blocks(all_blocks)
+#
+#     # 🔹 섹션 매칭
+#     results = match_underlines_to_sections(sections, underlines)
+#
+#     # 🔹 <u> 비교용 출력
+#     merged = merge_by_semicolon(underlines)
+#     underline_fulltext_blocks(merged, page_blocks)
+#
+#     print_results(results)
+#     return results
+#
+#
+# if __name__ == "__main__":
+#     if len(sys.argv) > 1:
+#         path = sys.argv[1]
+#     else:
+#         path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075457917-01-복사.pdf"
+#
+#     if not Path(path).exists():
+#         print(f"파일 없음: {path}")
+#         sys.exit(1)
+#
+#     main(path)
