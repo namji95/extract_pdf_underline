@@ -381,11 +381,47 @@ def match_underlines_to_sections(sections, underlines):
                 continue
 
             goods = extract_goods_from_tagged_text(u["tagged_text"])
+            full_goods_parts = [
+                p.strip()
+                for p in re.split(r"[;.]", u.get("full_text", ""))
+                if p.strip()
+            ]
+
             for g in goods:
-                goods_list.append({
-                    "class": u.get("class"),
-                    "goods": g
-                })
+                core = re.sub(r"</?u>", "", g).strip()
+
+                extended = None
+                for part in full_goods_parts:
+                    # cosmetics → cosmetics for animals
+                    # full_text에 core가 '단독 상품'으로 존재하는지 체크
+                    standalone_exists = any(
+                        p.strip().lower() == core.lower()
+                        for p in full_goods_parts
+                    )
+
+                    for part in full_goods_parts:
+                        # cosmetics → cosmetics for animals (허용)
+                        if (
+                                part.lower().startswith(core.lower() + " ")
+                                and not standalone_exists  # 🔥 핵심 조건
+                        ):
+                            extended = part
+                            break
+
+                if extended:
+                    goods_list.append({
+                        "class": u.get("class"),
+                        "goods": extended.replace(
+                            core,
+                            f"<u>{core}</u>",
+                            1
+                        )
+                    })
+                else:
+                    goods_list.append({
+                        "class": u.get("class"),
+                        "goods": g
+                    })
 
         results.append({
             "mark_number": section.get("mark_number"),
@@ -490,41 +526,25 @@ def merge_multiline_underlines(underlines, y_gap=20):
 
 def extract_goods_from_tagged_text(tagged_text: str) -> list[str]:
     """
-    규칙:
-    1. ; 또는 . 기준으로 1차 분리
-    2. <u>가 포함된 조각만 대상
-    3. 연속된 <u> 조각은 하나의 상품으로 병합
-    4. <u> 태그는 유지
+    최소 수정 버전
+    - <u>...</u> 내부에 여러 상품이 있으면 ; 기준으로 분리
+    - 결과는 항상 '상품 1개 = <u>1개</u>'
     """
+
     goods = []
 
-    # 1️⃣ 1차 분리
-    parts = re.split(r'[;.]', tagged_text)
+    # <u>...</u> 블록 단위 추출
+    underline_blocks = re.findall(r"<u>(.*?)</u>", tagged_text)
 
-    buffer = None  # 병합용 버퍼
+    for block in underline_blocks:
+        # ; 우선 분리
+        parts = [p.strip() for p in re.split(r"[;]", block) if p.strip()]
 
-    for part in parts:
-        part = part.strip()
-        if not part:
-            continue
-
-        if "<u>" in part:
-            if buffer is None:
-                buffer = part
-            else:
-                # 🔥 delimiter 없이 연속 underline → 병합
-                buffer = buffer.replace("</u>", "") + " " + part.replace("<u>", "")
-        else:
-            # underline 없는 조각을 만나면 버퍼 확정
-            if buffer:
-                goods.append(buffer.strip())
-                buffer = None
-
-    # 마지막 버퍼 처리
-    if buffer:
-        goods.append(buffer.strip())
+        for part in parts:
+            goods.append(f"<u>{part}</u>")
 
     return goods
+
 
 def remove_class_prefix(text: str) -> str:
     """
@@ -655,7 +675,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         pdf_path = sys.argv[1]
     else:
-        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/테스트/동일유사3.pdf"
+        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/직권가거절통지서.pdf"
 
     if not Path(pdf_path).exists():
         print(f"파일 없음: {pdf_path}")
@@ -669,6 +689,6 @@ if __name__ == "__main__":
     underlines = extract_underlined_with_positions(pdf_path)
     print(underlines)
     results = match_underlines_to_sections(sections, underlines)
-
     print(results)
+
     print_results(results)
