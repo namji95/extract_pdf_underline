@@ -280,19 +280,48 @@ def extract_underlined_with_positions(pdf_path):
             if should_exclude_underlined_text(normalized_text):
                 continue
 
-            # underline 대상 텍스트에서 끝 구분자 제거
-            m = re.match(r"^(.*?)([;.]?)$", normalized_text)
-            underline_core = m.group(1)
-            delimiter = m.group(2)
+            # ==================================================
+            # 7️⃣ <u> 태그 적용 (상품 단위 기준, 1 underline = 1 결과)
+            # ==================================================
 
-            if underline_core and underline_core in full_text:
-                tagged_text = full_text.replace(
-                    underline_core + delimiter,
-                    f"<u>{underline_core}</u>{delimiter}",
-                    1
-                )
-            else:
-                tagged_text = f"<u>{underline_core}</u>{delimiter}"
+            # underline_core (delimiter 제거)
+            underline_core = re.sub(r"[;.]\s*$", "", normalized_text).strip()
+            compare_underline = normalize_for_compare(underline_core)
+
+            # full_text → 상품 단위 분리
+            goods_parts = [
+                p.strip()
+                for p in re.split(r"[;.]", full_text)
+                if p.strip()
+            ]
+
+            tagged_text = None
+
+            for part in goods_parts:
+                compare_part = normalize_for_compare(part)
+                print(f"compare_part: {compare_part} | compare_underline: {compare_underline}")
+
+                # 1️⃣ 정확히 일치
+                if compare_part == compare_underline:
+                    tagged_text = f"<u>{compare_part}</u>"
+                    print(tagged_text)
+                    break
+
+                # 2️⃣ suffix 확장 허용 (cosmetics → cosmetics for animals)
+                if (
+                        compare_part.startswith(compare_underline + " ")
+                        and compare_underline not in ["jewellery", "watches"]
+                ):
+                    tagged_text = part.replace(
+                        part[:len(underline_core)],
+                        f"<u>{underline_core}</u>",
+                        1
+                    )
+                    break
+
+            # fallback (anchor만 있는 경우)
+            if not tagged_text:
+                tagged_text = f"<u>{underline_core}</u>"
 
             # ==================================================
             # 8️⃣ 결과 저장
@@ -312,14 +341,13 @@ def extract_underlined_with_positions(pdf_path):
     # 9️⃣ PDF 닫기
     # ==================================================
     doc.close()
-
+    print(f"\n\n{results}\n\n")
     return results
 
 def match_underlines_to_sections(sections, underlines):
     results = []
 
     for section in sections:
-        seen = set()
         goods_list = []
 
         # 1️⃣ 섹션에 속하는 underline 먼저 수집
@@ -339,14 +367,25 @@ def match_underlines_to_sections(sections, underlines):
 
         # 3️⃣ 이제 안전하게 tagged_text 파싱
         for u in section_underlines:
+            ALL_DESIGNATED_PATTERN = re.compile(
+                r'(?i)[\'\"""]?\s*all\s*[\'\"""]?\s+the\s+designated\s+(goods\s*/\s*services|goods|services)',
+                re.VERBOSE
+            )
+            # 🔥 1️⃣ ALL 지정 케이스 선처리
+            if ALL_DESIGNATED_PATTERN.search(u.get("full_text", "")):
+                g = "<u>all the designated goods/services</u>"
+                goods_list.append({
+                    "class": u.get("class"),
+                    "goods": g
+                })
+                continue
+
             goods = extract_goods_from_tagged_text(u["tagged_text"])
             for g in goods:
-                if g not in seen:
-                    seen.add(g)
-                    goods_list.append({
-                        "class": u.get("class"),
-                        "goods": g
-                    })
+                goods_list.append({
+                    "class": u.get("class"),
+                    "goods": g
+                })
 
         results.append({
             "mark_number": section.get("mark_number"),
@@ -355,54 +394,35 @@ def match_underlines_to_sections(sections, underlines):
             "underlined_goods": goods_list
         })
 
+    for r in results:
+        for item in r["underlined_goods"]:
+            item["goods"] = clean_goods_text(item["goods"])
+
     return results
 
 def normalize_underlined_text(text: str, remove_class: bool = False) -> str:
-    """
-    밑줄 텍스트를 정규화하는 함수
-    - 불필요한 prefix 제거
-    - goods/services 형태 보정
-    - Class 제거 옵션 처리
-    """
-    # 1️⃣ 앞뒤 공백 제거
     text = text.strip()
 
-    # 2️⃣ 'all' 또는 'All' 단독인 경우 그대로 반환
+    # ✅ applied-for mark 메타 prefix 제거 (강화 버전)
+    text = re.sub(
+        r"^\s*(?:\[\s*Class\s*\d+\s*\]\s*)?\*?\s*Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground:\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # 'all' 단독
     if re.fullmatch(r"(all|All)", text):
         return text
 
-    # 3️⃣ '(underlined goods)' 제거
-    before = text
-    text = re.sub(
-        r"^\(\s*underlined goods\s*\)\s*",
-        "",
-        text,
-        flags=re.IGNORECASE
-    )
+    # (underlined goods) 제거
+    text = re.sub(r"^\(\s*underlined goods\s*\)\s*", "", text, flags=re.I)
+    text = re.sub(r"^\(\s*underlined goods/services\s*\)\s*", "", text, flags=re.I)
 
-    # 4️⃣ '(underlined goods/services)' 제거
-    before = text
-    text = re.sub(
-        r"^\(\s*underlined goods/services\s*\)\s*",
-        "",
-        text,
-        flags=re.IGNORECASE
-    )
-
-    # 5️⃣ Class 제거 옵션
     if remove_class:
-        before = text
         text = remove_class_prefix(text)
 
-    # 6️⃣ goods/services 로 끝나는 경우 ; 보정
-    if re.search(r"goods/services\s*$", text, re.IGNORECASE):
-        if not text.rstrip().endswith((';', '.')):
-            text = text.rstrip() + ";"
-
-    # 7️⃣ 최종 정리
-    text = text.strip()
-
-    return text
+    return text.strip()
 
 def should_exclude_underlined_text(text: str) -> bool:
     """
@@ -522,6 +542,89 @@ def remove_class_prefix(text: str) -> str:
 
     return cleaned
 
+def clean_goods_text(goods: str) -> str:
+    """
+    최종 결과용 goods 문자열 정리
+    - applied-for mark 설명 제거
+    - [Class XX] 제거 (위치 무관, <u> 밖/안 모두)
+    - <u> 태그는 유지
+    """
+
+    if not goods:
+        return goods
+
+    # 1️⃣ applied-for mark 설명 제거
+    goods = re.sub(
+        r"^\*\s*Goods/Services of the applied-for mark in relation to this ground:\s*",
+        "",
+        goods,
+        flags=re.IGNORECASE
+    )
+
+    # 2️⃣ [Class XX] 제거 (앞/중간/뒤, 공백 포함 전부)
+    goods = re.sub(
+        r"\s*\[\s*Class\s*\d+\s*\]\s*",
+        "",
+        goods,
+        flags=re.IGNORECASE
+    )
+
+    # 3️⃣ <u> 바로 뒤에 생긴 공백 정리
+    goods = re.sub(r"<u>\s+", "<u>", goods)
+
+    # 4️⃣ 다중 공백 정리
+    goods = re.sub(r"\s{2,}", " ", goods)
+
+    return goods.strip()
+
+def normalize_for_compare(text: str) -> str:
+    """
+    상품 비교용 정규화
+    - applied-for mark 설명 제거
+    - [Class XX] 제거
+    - 공백 정리
+    """
+    if not text:
+        return ""
+
+    # applied-for mark 설명 제거
+    text = re.sub(
+        r"^\*\s*Goods/Services of the applied-for mark in relation to this ground:\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # applied-for mark 설명 제거
+    text = re.sub(
+        r"^\*\s* Goods of the proposed mark refused by this ground for refusal :\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # applied-for mark 설명 제거
+    text = re.sub(
+        r"^\*\s* Goods of the proposed mark refused under this ground :\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # [Class XX] 제거
+    text = re.sub(
+        r"\[\s*Class\s*\d+\s*\]",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # 공백 정리
+    text = re.sub(r"\s{2,}", " ", text)
+
+    return text.strip()
+
+
 def print_results(results):
     """결과를 보기 좋게 출력"""
 
@@ -542,8 +645,7 @@ def print_results(results):
         if r['underlined_goods']:
             print(f"\n    밑줄 친 상품 목록:")
             for i, goods_item in enumerate(r['underlined_goods'], 1):
-                class_info = f"[Class {goods_item['class']}] " if goods_item['class'] else ""
-                print(f"      {i}. {class_info}{goods_item['goods']}")
+                print(f"      {i}. {goods_item['goods']}")
         else:
             print(f"    (밑줄 없음)")
 
@@ -560,6 +662,7 @@ def main(pdf_path):
     print(underlines)
     results = match_underlines_to_sections(sections, underlines)
 
+    print(results)
     print_results(results)
 
     return results
@@ -568,7 +671,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         path = sys.argv[1]
     else:
-        path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075457917-01-복사.pdf"
+        path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/테스트/동일유사3.pdf"
 
     if not Path(path).exists():
         print(f"파일 없음: {path}")
