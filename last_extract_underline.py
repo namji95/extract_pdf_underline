@@ -651,8 +651,16 @@ def print_results(results):
 
         print()
 
-def main(pdf_path):
-    """메인 실행 함수"""
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        pdf_path = sys.argv[1]
+    else:
+        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/테스트/동일유사3.pdf"
+
+    if not Path(pdf_path).exists():
+        print(f"파일 없음: {pdf_path}")
+        sys.exit(1)
+
     print("=" * 80)
     print(f"\n파일 분석 중: {pdf_path}")
 
@@ -664,17 +672,3 @@ def main(pdf_path):
 
     print(results)
     print_results(results)
-
-    return results
-
-if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        path = sys.argv[1]
-    else:
-        path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/테스트/동일유사3.pdf"
-
-    if not Path(path).exists():
-        print(f"파일 없음: {path}")
-        sys.exit(1)
-
-    main(path)
