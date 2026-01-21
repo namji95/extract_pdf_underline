@@ -396,22 +396,21 @@ def match_underlines_to_sections(sections, underlines):
                 core = re.sub(r"</?u>", "", g).strip()
 
                 extended = None
-                for part in full_goods_parts:
-                    # cosmetics → cosmetics for animals
-                    # full_text에 core가 '단독 상품'으로 존재하는지 체크
-                    standalone_exists = any(
-                        p.strip().lower() == core.lower()
-                        for p in full_goods_parts
-                    )
+                # cosmetics → cosmetics for animals
+                # full_text에 core가 '단독 상품'으로 존재하는지 체크
+                standalone_exists = any(
+                    p.strip().lower() == core.lower()
+                    for p in full_goods_parts
+                )
 
-                    for part in full_goods_parts:
-                        # cosmetics → cosmetics for animals (허용)
-                        if (
-                                part.lower().startswith(core.lower() + " ")
-                                and not standalone_exists  # 🔥 핵심 조건
-                        ):
-                            extended = part
-                            break
+                for part in full_goods_parts:
+                    # cosmetics → cosmetics for animals (허용)
+                    if (
+                            part.lower().startswith(core.lower() + " ")
+                            and not standalone_exists  # 🔥 핵심 조건
+                    ):
+                        extended = part
+                        break
 
                 if extended:
                     goods_list.append({
@@ -679,7 +678,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         pdf_path = sys.argv[1]
     else:
-        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075453328-02-복사.pdf"
+        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075456433-01-복사.pdf"
 
     if not Path(pdf_path).exists():
         print(f"파일 없음: {pdf_path}")
