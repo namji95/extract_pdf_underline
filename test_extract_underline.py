@@ -175,6 +175,329 @@ def extract_trademark_sections(pdf_path):
 
     return sections
 
+def extract_goods_with_spans(pdf_path, underlines):
+    """
+    "* Goods/Services of the applied-for mark in relation to this ground:" 이후
+    텍스트를 ';' 또는 '.' 기준으로 분리하고, 밑줄이 있는 부분에만 <u> 태그 적용
+
+    Args:
+        pdf_path: PDF 파일 경로
+        underlines: extract_underlines_only() 결과
+
+    Returns:
+        list of dict: [
+            {
+                "page": 페이지 번호,
+                "text": 원본 텍스트 (상품 단위),
+                "tagged_text": <u> 태그 적용된 텍스트,
+                "y0": 시작 y좌표,
+                "y1": 끝 y좌표,
+            },
+            ...
+        ]
+    """
+    doc = fitz.open(pdf_path)
+    results = []
+
+    # 앵커 패턴
+    ANCHOR_PATTERN = re.compile(
+        r"Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground",
+        re.IGNORECASE
+    )
+
+    # 페이지 번호 패턴 (예: "- 5 -", "- 6 -")
+    PAGE_NUM_PATTERN = re.compile(r'^\s*-\s*\d+\s*-\s*$')
+
+    def get_underlined_texts_for_page(page, page_num):
+        """페이지에서 밑줄 바로 위의 텍스트 추출"""
+        underlined_texts = []
+        page_underlines = [ul for ul in underlines if ul["page"] == page_num]
+
+        for ul in page_underlines:
+            # 밑줄 바로 위 영역 (텍스트 높이 약 12pt)
+            clip_rect = fitz.Rect(
+                ul["x0"] - 1,
+                ul["y"] - 12,
+                ul["x1"] + 1,
+                ul["y"] + 1
+            )
+            text = page.get_text("text", clip=clip_rect).strip()
+            text = " ".join(text.split())  # 공백 정리
+
+            if text:
+                underlined_texts.append({
+                    "text": text,
+                    "y": ul["y"],
+                    "x0": ul["x0"],
+                    "x1": ul["x1"]
+                })
+
+        return underlined_texts
+
+    def apply_underline_tags(full_text, underlined_texts):
+        """전체 텍스트에서 밑줄 텍스트에만 <u> 태그 적용"""
+        if not underlined_texts:
+            return full_text
+
+        tagged_text = full_text
+
+        # 밑줄 텍스트들을 길이순 정렬 (긴 것 먼저 - 부분 매칭 방지)
+        sorted_ul_texts = sorted(underlined_texts, key=lambda x: len(x["text"]), reverse=True)
+
+        for ul in sorted_ul_texts:
+            ul_text = ul["text"]
+            if not ul_text:
+                continue
+
+            # 이미 태그된 부분 건너뛰기
+            if f"<u>{ul_text}</u>" in tagged_text:
+                continue
+
+            # 정확한 텍스트 매칭 후 태그 적용
+            if ul_text in tagged_text:
+                # 이미 <u> 태그 안에 있는지 확인
+                pattern = re.compile(re.escape(ul_text))
+                matches = list(pattern.finditer(tagged_text))
+
+                for match in reversed(matches):  # 뒤에서부터 처리
+                    start, end = match.start(), match.end()
+
+                    # 이미 <u> 태그 안에 있는지 확인
+                    before = tagged_text[:start]
+                    if before.count("<u>") > before.count("</u>"):
+                        continue  # 이미 태그 안에 있음
+
+                    tagged_text = tagged_text[:start] + f"<u>{ul_text}</u>" + tagged_text[end:]
+                    break  # 첫 번째 매칭만 처리
+
+        return tagged_text
+
+    # 버퍼: 텍스트 누적
+    buffer_texts = []  # [text, ...]
+    buffer_page = None
+    buffer_y0 = float('inf')
+    buffer_y1 = 0
+    buffer_underlined_texts = []  # 해당 버퍼 범위 내 밑줄 텍스트들
+
+    def flush_buffer():
+        """버퍼에 있는 텍스트를 합쳐서 results에 추가"""
+        nonlocal buffer_texts, buffer_page, buffer_y0, buffer_y1, buffer_underlined_texts
+
+        if not buffer_texts:
+            return
+
+        # 텍스트 합치기
+        full_text = " ".join(buffer_texts)
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+
+        if full_text:
+            # 밑줄 태그 적용
+            tagged_text = apply_underline_tags(full_text, buffer_underlined_texts)
+
+            results.append({
+                "page": buffer_page,
+                "text": full_text,
+                "tagged_text": tagged_text,
+                "y0": buffer_y0,
+                "y1": buffer_y1,
+            })
+
+        # 초기화
+        buffer_texts = []
+        buffer_y0 = float('inf')
+        buffer_y1 = 0
+        buffer_underlined_texts = []
+
+    def add_to_buffer(text, y0, y1, page, page_underlined_texts):
+        """텍스트를 버퍼에 추가"""
+        nonlocal buffer_page, buffer_y0, buffer_y1, buffer_underlined_texts
+
+        buffer_texts.append(text)
+        buffer_page = page
+        buffer_y0 = min(buffer_y0, y0)
+        buffer_y1 = max(buffer_y1, y1)
+
+        # 해당 y 범위에 있는 밑줄 텍스트 수집
+        for ul in page_underlined_texts:
+            if y0 - 5 <= ul["y"] <= y1 + 5:
+                if ul not in buffer_underlined_texts:
+                    buffer_underlined_texts.append(ul)
+
+    after_anchor = False  # 페이지 간 상태 유지
+
+    for page_num, page in enumerate(doc):
+        text_dict = page.get_text("dict")
+        page_underlined_texts = get_underlined_texts_for_page(page, page_num + 1)
+
+        for block in text_dict["blocks"]:
+            if "lines" not in block:
+                continue
+
+            for line_obj in block["lines"]:
+                for span in line_obj["spans"]:
+                    txt = span["text"]
+                    bbox = span["bbox"]
+
+                    if not txt.strip():
+                        continue
+
+                    # 페이지 번호 스킵
+                    if PAGE_NUM_PATTERN.match(txt.strip()):
+                        continue
+
+                    # 앵커 찾기
+                    if ANCHOR_PATTERN.search(txt):
+                        after_anchor = True
+                        # ":" 이후 텍스트 처리
+                        colon_idx = txt.find(":")
+                        if colon_idx != -1 and colon_idx < len(txt) - 1:
+                            after_colon = txt[colon_idx + 1:].strip()
+                            if after_colon:
+                                # ';' 또는 '.'로 분리
+                                parts = re.split(r'([;.])', after_colon)
+                                for part in parts:
+                                    if not part:
+                                        continue
+                                    if part in [';', '.']:
+                                        flush_buffer()
+                                        if part == '.':
+                                            after_anchor = False
+                                    else:
+                                        add_to_buffer(part, bbox[1], bbox[3], page_num + 1, page_underlined_texts)
+                        continue
+
+                    if not after_anchor:
+                        continue
+
+                    # 앵커 이후 텍스트 처리
+                    if ';' in txt or '.' in txt:
+                        parts = re.split(r'([;.])', txt)
+                        for part in parts:
+                            if not part:
+                                continue
+                            if part in [';', '.']:
+                                flush_buffer()
+                                if part == '.':
+                                    after_anchor = False
+                            else:
+                                add_to_buffer(part, bbox[1], bbox[3], page_num + 1, page_underlined_texts)
+                    else:
+                        add_to_buffer(txt, bbox[1], bbox[3], page_num + 1, page_underlined_texts)
+
+    # 마지막 버퍼 처리
+    flush_buffer()
+
+    doc.close()
+    return results
+
+def extract_underlines_only(pdf_path):
+    """
+    PDF에서 밑줄(수평선)만 추출 (좌표 정보만)
+    """
+    doc = fitz.open(pdf_path)
+    underlines = []
+
+    for page_num, page in enumerate(doc):
+        drawings = page.get_drawings()
+
+        for d in drawings:
+            for item in d.get("items", []):
+                if item[0] == "l":
+                    p1, p2 = item[1], item[2]
+
+                    # 수평선 판별
+                    if abs(p1.y - p2.y) < 2:
+                        length = abs(p2.x - p1.x)
+
+                        # underline 후보 길이 제한
+                        if 10 < length < 500:
+                            underlines.append({
+                                "page": page_num + 1,
+                                "y": p1.y,
+                                "x0": min(p1.x, p2.x),
+                                "x1": max(p1.x, p2.x),
+                            })
+
+    doc.close()
+    return underlines
+
+def tag_goods_with_underlines(goods_lines, underlines, y_tolerance=5, x_tolerance=5):
+    """
+    goods_lines의 텍스트와 underlines의 좌표를 비교해서
+    밑줄이 있는 부분에 <u> 태그를 적용
+
+    Args:
+        goods_lines: extract_goods_lines_with_positions() 결과
+        underlines: extract_underlines_only() 결과
+        y_tolerance: y좌표 허용 오차
+        x_tolerance: x좌표 허용 오차
+
+    Returns:
+        list of dict: [
+            {
+                "page": 페이지,
+                "text": 원본 텍스트,
+                "tagged_text": <u> 태그 적용된 텍스트,
+                "has_underline": 밑줄 여부,
+                "matched_underlines": 매칭된 밑줄 목록,
+            },
+            ...
+        ]
+    """
+    results = []
+
+    for goods in goods_lines:
+        page = goods["page"]
+        text = goods["text"]
+        g_x0 = goods["x0"]
+        g_x1 = goods["x1"]
+        g_y0 = goods["y0"]
+        g_y1 = goods["y1"]
+
+        # 해당 goods_line과 매칭되는 모든 밑줄 찾기
+        matched_underlines = []
+
+        for ul in underlines:
+            # 같은 페이지인지
+            if ul["page"] != page:
+                continue
+
+            ul_y = ul["y"]
+            ul_x0 = ul["x0"]
+            ul_x1 = ul["x1"]
+
+            # y좌표 비교: 밑줄이 텍스트 y0~y1 범위 안에 있는지
+            # (텍스트가 여러 줄에 걸쳐있으므로 범위 안에 있으면 매칭)
+            if not (g_y0 - y_tolerance <= ul_y <= g_y1 + y_tolerance):
+                continue
+
+            # x좌표 비교: 밑줄이 텍스트 범위와 겹치는지
+            x_overlap = max(0, min(g_x1, ul_x1) - max(g_x0, ul_x0))
+            if x_overlap < x_tolerance:
+                continue
+
+            matched_underlines.append(ul)
+
+        if matched_underlines:
+            # 전체 텍스트에 <u> 태그 적용
+            tagged_text = f"<u>{text}</u>"
+            has_underline = True
+        else:
+            tagged_text = text
+            has_underline = False
+
+        results.append({
+            "page": page,
+            "text": text,
+            "tagged_text": tagged_text,
+            "has_underline": has_underline,
+            "matched_underlines": matched_underlines,
+            "y0": g_y0,
+            "y1": g_y1,
+        })
+
+    return results
+
 def extract_underlined_with_positions(pdf_path):
     """
     PDF에서 '밑줄(underline)'에 해당하는 수평선을 직접 탐지하고,
@@ -197,6 +520,38 @@ def extract_underlined_with_positions(pdf_path):
     # 1️⃣ 페이지 단위 순회
     # ==================================================
     for page_num, page in enumerate(doc):
+        text_dict = page.get_text("dict")
+
+        spans_after_applied_for = []
+        after_anchor = False
+
+        for block in text_dict["blocks"]:
+            if "lines" not in block:
+                continue
+
+            for line_obj in block["lines"]:
+                for span in line_obj["spans"]:
+                    txt = span["text"].strip()
+                    if not txt:
+                        continue
+
+                    # 기준 anchor
+                    if re.search(
+                            r"Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground",
+                            txt,
+                            re.IGNORECASE
+                    ):
+                        after_anchor = True
+                        continue
+
+                    if not after_anchor:
+                        continue
+
+                    spans_after_applied_for.append({
+                        "text": txt,
+                        "bbox": span["bbox"]  # (x0, y0, x1, y1)
+                    })
+
         drawings = page.get_drawings()
         lines = []
 
@@ -696,7 +1051,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         pdf_path = sys.argv[1]
     else:
-        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075453328-02-복사.pdf"
+        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075457917-01-복사.pdf"
 
     if not Path(pdf_path).exists():
         print(f"파일 없음: {pdf_path}")
@@ -705,11 +1060,113 @@ if __name__ == "__main__":
     print("=" * 80)
     print(f"\n파일 분석 중: {pdf_path}\n")
 
-    sections = extract_trademark_sections(pdf_path)
-    print(f"인용 상표 정보: {sections}")
-    underlines = extract_underlined_with_positions(pdf_path)
-    print(f"밑줄 정보: {underlines}")
-    results = match_underlines_to_sections(sections, underlines)
-    print(f"최종 결과: {results}")
+    # ==================================================
+    # 1️⃣ 밑줄(수평선) 좌표만 추출
+    # ==================================================
+    underlines_only = extract_underlines_only(pdf_path)
+    print("\n📍 밑줄(수평선) 좌표:")
+    for idx, ul in enumerate(underlines_only, 1):
+        print(f"  {idx}. page={ul['page']}, y={ul['y']:.1f}, x0={ul['x0']:.1f}, x1={ul['x1']:.1f}")
+    print()
 
-    print_results(results)
+    # ==================================================
+    # 2️⃣ 🔥 Goods/Services 추출 + 밑줄 부분만 <u> 태그 적용
+    # ==================================================
+    tagged_results = extract_goods_with_spans(pdf_path, underlines_only)
+    print("\n📍 밑줄 매칭 결과 (<u> 태그 적용):")
+    for idx, item in enumerate(tagged_results, 1):
+        has_underline = "<u>" in item["tagged_text"]
+        underline_mark = "✅" if has_underline else "  "
+        print(f"  {idx}. {underline_mark} page={item['page']}")
+        print(f"      원본: {item['text']}")
+        print(f"      태그: {item['tagged_text']}")
+    print()
+
+    # ==================================================
+    # 3️⃣ 섹션 정보 추출
+    # ==================================================
+    sections = extract_trademark_sections(pdf_path)
+
+    # ==================================================
+    # 4️⃣ 🔥 tagged_results를 sections에 매칭 (페이지 범위 기반)
+    # ==================================================
+    def find_matching_tagged(sec, tagged_list):
+        """섹션 범위 내에 있는 tagged_result 찾기"""
+        page_start = sec["page_start"]
+        page_end = sec["page_end"]
+        y_start = sec["y_start"]
+        y_end = sec["y_end"]
+
+        for tr in tagged_list:
+            tr_page = tr["page"]
+            tr_y0 = tr["y0"]
+
+            # 페이지 범위 체크
+            if tr_page < page_start or tr_page > page_end:
+                continue
+
+            # 단일 페이지 섹션
+            if page_start == page_end:
+                if y_start <= tr_y0 <= y_end:
+                    return tr
+                continue
+
+            # 여러 페이지에 걸친 섹션
+            if tr_page == page_start:
+                # 시작 페이지: y_start 이후
+                if tr_y0 >= y_start:
+                    return tr
+            elif tr_page == page_end:
+                # 끝 페이지: y_end 이전
+                if tr_y0 <= y_end:
+                    return tr
+            else:
+                # 중간 페이지
+                return tr
+
+        return None
+
+    final_results = []
+    used_tagged = set()  # 이미 매칭된 tagged_result 추적
+
+    for section in sections:
+        matched = find_matching_tagged(section, tagged_results)
+
+        matched_tagged = []
+        if matched:
+            # 중복 사용 체크
+            tr_key = (matched["page"], matched["y0"])
+            if tr_key not in used_tagged:
+                matched_tagged.append(matched)
+                used_tagged.add(tr_key)
+
+        final_results.append({
+            "mark_number": section.get("mark_number"),
+            "filing_number": section["filing_number"],
+            "international_registration": section["international_registration"],
+            "tagged_goods": matched_tagged
+        })
+
+    # ==================================================
+    # 5️⃣ 최종 결과 출력
+    # ==================================================
+    print("\n" + "=" * 80)
+    print("🔥 최종 결과 (전체 텍스트 + 밑줄 태그)")
+    print("=" * 80 + "\n")
+
+    for idx, r in enumerate(final_results, 1):
+        print(f"[{idx}] 상표 정보 (Earlier Mark {r.get('mark_number', '?')})")
+
+        if r['filing_number']:
+            print(f"    Filing Number: {r['filing_number']}")
+        if r['international_registration']:
+            print(f"    International Registration: {r['international_registration']}")
+
+        if r['tagged_goods']:
+            print(f"\n    상품 목록 (밑줄 부분에 <u> 태그):")
+            for i, goods_item in enumerate(r['tagged_goods'], 1):
+                print(f"      {i}. {goods_item['tagged_text']}")
+        else:
+            print(f"    (상품 없음)")
+
+        print()
