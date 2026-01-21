@@ -996,51 +996,7 @@ def process_pdf(pdf_path):
                     "class": item.get("class"),
                     "goods": tagged_text
                 })
-    print(final_results)
     return final_results
-
-
-def print_results(data):
-    """결과 출력"""
-    print("\n" + "=" * 80)
-    print("최종 결과 (밑줄 친 상품 목록)")
-    print("=" * 80 + "\n")
-
-    for idx, r in enumerate(data['final_results'], 1):
-        print(f"[{idx}] 상표 정보 (Earlier Mark {r.get('mark_number', '?')})")
-
-        if r.get('filing_number'):
-            print(f"    Filing Number: {r['filing_number']}")
-        if r.get('international_registration'):
-            print(f"    International Registration: {r['international_registration']}")
-
-        delimiter_type = r.get('delimiter_type', 'semicolon')
-        print(f"    구분자 타입: {delimiter_type}")
-
-        if delimiter_type == 'comma':
-            # comma 방식: 전체 텍스트 + <u> 태그
-            tagged_goods = r.get('tagged_goods', [])
-            if tagged_goods:
-                print(f"\n    상품 목록 (전체 텍스트 + 밑줄 태그):")
-                for i, goods_item in enumerate(tagged_goods, 1):
-                    class_num = goods_item.get('class')
-                    class_prefix = f"[Class {class_num}] " if class_num else ""
-                    print(f"      {i}. {class_prefix}{goods_item['tagged_text']}")
-            else:
-                print(f"    (상품 없음)")
-        else:
-            # semicolon 방식: 개별 상품 목록
-            goods_list = r.get('underlined_goods', [])
-            print(f"    Underlined Goods: {len(goods_list)}개")
-
-            if goods_list:
-                print(f"\n    밑줄 친 상품 목록:")
-                for i, goods_item in enumerate(goods_list, 1):
-                    print(f"      {i}. {goods_item['goods']}")
-            else:
-                print(f"    (밑줄 없음)")
-
-        print()
 
 
 if __name__ == "__main__":
@@ -1057,4 +1013,3 @@ if __name__ == "__main__":
     print(f"\n파일 분석 중: {pdf_path}\n")
 
     data = process_pdf(pdf_path)
-    # print_results(data)
