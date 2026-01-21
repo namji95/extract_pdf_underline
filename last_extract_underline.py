@@ -249,6 +249,7 @@ def extract_underlined_with_positions(pdf_path):
             if not anchor_text:
                 continue
 
+            # TODO: 여기를 활용해서 풀텍스트 가져오는 테스트 해볼 것
             # ------------------------------------------
             # (2) 같은 줄 전체 텍스트 (page width)
             # ------------------------------------------
@@ -308,18 +309,6 @@ def extract_underlined_with_positions(pdf_path):
                 # 1️⃣ 정확히 일치
                 if compare_part == compare_underline:
                     tagged_text = f"<u>{compare_part}</u>"
-                    break
-
-                # 2️⃣ suffix 확장 허용 (cosmetics → cosmetics for animals)
-                if (
-                        compare_part.startswith(compare_underline + " ")
-                        and compare_underline not in ["jewellery", "watches"]
-                ):
-                    tagged_text = part.replace(
-                        part[:len(underline_core)],
-                        f"<u>{underline_core}</u>",
-                        1
-                    )
                     break
 
             # fallback (anchor만 있는 경우)
@@ -676,7 +665,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         pdf_path = sys.argv[1]
     else:
-        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/테스트/기타1.pdf"
+        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075457917-01-복사.pdf"
 
     if not Path(pdf_path).exists():
         print(f"파일 없음: {pdf_path}")
