@@ -1,7 +1,7 @@
 """
 통합 로직: ';'과 '.' 또는 ','와 '.' 기준으로 분기 처리
-- ';'이 있으면 ';'과 '.' 기준으로 분리
-- ';'이 없고 ','만 있으면 ','와 '.' 기준으로 분리
+- ';'이 있으면 ';'과 '.' 기준으로 분리 (last_extract_underline.py 방식)
+- ';'이 없고 ','만 있으면 ','와 '.' 기준으로 분리 (test_extract_underline.py 방식)
 PDF에서 밑줄 친 텍스트를 추출하고
 해당 밑줄이 속한 상표(Filing number/International registration number)와 연결
 """
@@ -185,9 +185,8 @@ def detect_delimiter_type(pdf_path):
     """
     PDF에서 Goods/Services 영역의 구분자 타입 감지
     - ';'이 있으면 'semicolon' 반환 (;과 .로 분리)
-    - ';'이 없으면 'dot_only' 반환 (.로만 분리, 전체가 하나의 상품)
-
-    Note: ','는 상품 설명 내의 구분이므로 분리하지 않음
+    - ';'이 없고 ','가 있으면 'comma' 반환 (,와 .로 분리)
+    - 둘 다 없으면 'dot_only' 반환 (.로만 분리)
     """
     doc = fitz.open(pdf_path)
 
@@ -220,7 +219,6 @@ def detect_delimiter_type(pdf_path):
                     if after_anchor:
                         goods_text += txt
                         if '.' in txt:
-                            # 첫 번째 상품 목록만 확인
                             break
 
             if after_anchor and '.' in goods_text:
@@ -230,11 +228,13 @@ def detect_delimiter_type(pdf_path):
 
     doc.close()
 
-    # 구분자 타입 결정: ';'이 있으면 semicolon, 없으면 dot_only
+    # 구분자 타입 결정: ';'이 있으면 semicolon, ','가 있으면 comma, 없으면 dot_only
     if ';' in goods_text:
         return 'semicolon'
+    elif ',' in goods_text:
+        return 'comma'
     else:
-        return 'dot_only'  # .로만 분리 (전체가 하나의 상품)
+        return 'dot_only'
 
 
 def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
@@ -244,7 +244,7 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
     Args:
         pdf_path: PDF 파일 경로
         underlines: extract_underlines_only() 결과
-        delimiter_type: 'semicolon' (;과 . 기준) 또는 'comma' (,와 . 기준)
+        delimiter_type: 'semicolon' (;과 . 기준), 'comma' (,와 . 기준), 'dot_only' (.로만 분리)
     """
     doc = fitz.open(pdf_path)
     results = []
@@ -260,7 +260,10 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
     if delimiter_type == 'semicolon':
         delimiter_regex = r'([;.])'
         delimiters = [';', '.']
-    else:  # dot_only - .로만 분리 (전체가 하나의 상품)
+    elif delimiter_type == 'comma':
+        delimiter_regex = r'([,.])'
+        delimiters = [',', '.']
+    else:  # dot_only
         delimiter_regex = r'([.])'
         delimiters = ['.']
 
@@ -441,7 +444,6 @@ def find_all_matching_tagged(sec, tagged_list, used_indices):
     matched = []
 
     for idx, tr in enumerate(tagged_list):
-        # 인덱스로 중복 체크 (같은 y0를 가진 여러 상품 구분)
         if idx in used_indices:
             continue
 
@@ -463,7 +465,6 @@ def find_all_matching_tagged(sec, tagged_list, used_indices):
             if tr_y0 <= y_end:
                 is_in_range = True
         else:
-            # 중간 페이지
             is_in_range = True
 
         if is_in_range:
@@ -497,7 +498,7 @@ def clean_tagged_text(tagged_text):
 def process_pdf(pdf_path):
     """
     PDF 처리 메인 함수
-    - 구분자 타입 자동 감지
+    - 구분자 타입 자동 감지 (semicolon vs comma vs dot_only)
     - 밑줄 추출
     - 섹션 매칭
     """
