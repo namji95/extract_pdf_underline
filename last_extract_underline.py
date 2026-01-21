@@ -304,12 +304,10 @@ def extract_underlined_with_positions(pdf_path):
 
             for part in goods_parts:
                 compare_part = normalize_for_compare(part)
-                print(f"compare_part: {compare_part} | compare_underline: {compare_underline}")
 
                 # 1️⃣ 정확히 일치
                 if compare_part == compare_underline:
                     tagged_text = f"<u>{compare_part}</u>"
-                    print(tagged_text)
                     break
 
                 # 2️⃣ suffix 확장 허용 (cosmetics → cosmetics for animals)
@@ -346,7 +344,6 @@ def extract_underlined_with_positions(pdf_path):
     # 9️⃣ PDF 닫기
     # ==================================================
     doc.close()
-    print(f"\n\n{results}\n\n")
     return results
 
 def match_underlines_to_sections(sections, underlines):
@@ -674,24 +671,25 @@ def print_results(results):
 
         print()
 
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         pdf_path = sys.argv[1]
     else:
-        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075456433-01-복사.pdf"
+        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/테스트/기타1.pdf"
 
     if not Path(pdf_path).exists():
         print(f"파일 없음: {pdf_path}")
         sys.exit(1)
 
     print("=" * 80)
-    print(f"\n파일 분석 중: {pdf_path}")
+    print(f"\n파일 분석 중: {pdf_path}\n")
 
     sections = extract_trademark_sections(pdf_path)
-    print(sections)
+    print(f"인용 상표 정보: {sections}")
     underlines = extract_underlined_with_positions(pdf_path)
-    print(underlines)
+    print(f"밑줄 정보: {underlines}")
     results = match_underlines_to_sections(sections, underlines)
-    print(results)
+    print(f"최종 결과: {results}")
 
     print_results(results)
