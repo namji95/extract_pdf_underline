@@ -236,7 +236,12 @@ def extract_underlined_with_positions(pdf_path):
             )
 
             raw_text = page.get_text("text", clip=anchor_rect)
-            if raw_text == '심사관\n파트장\n팀장\n국장\n':
+            if (
+                    raw_text.startswith('심사관') or
+                    raw_text.startswith('파트장') or
+                    raw_text.startswith('팀장') or
+                    raw_text.startswith('국장')
+            ):
                 continue
 
             anchor_text = " ".join(raw_text.strip().split())
@@ -545,7 +550,6 @@ def extract_goods_from_tagged_text(tagged_text: str) -> list[str]:
 
     return goods
 
-
 def remove_class_prefix(text: str) -> str:
     """
     텍스트 앞에 붙은 [Class XX] 패턴을 제거하는 함수
@@ -675,7 +679,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         pdf_path = sys.argv[1]
     else:
-        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/직권가거절통지서.pdf"
+        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075453328-02-복사.pdf"
 
     if not Path(pdf_path).exists():
         print(f"파일 없음: {pdf_path}")
