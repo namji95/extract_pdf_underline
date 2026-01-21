@@ -1,7 +1,7 @@
 """
-통합 로직: ';'과 '.' 또는 ','와 '.' 기준으로 분기 처리
-- ';'이 있으면 ';'과 '.' 기준으로 분리 (last_extract_underline.py 방식)
-- ';'이 없고 ','만 있으면 ','와 '.' 기준으로 분리 (test_extract_underline.py 방식)
+통합 로직: ';'과 '.' 기준으로 데이터 분리 (','는 분리 기준 아님)
+- last_extract_underline.py의 ';'과 '.' 분리 + 줄바꿈 병합 로직
+- test_extract_underline.py의 부분 밑줄 처리 + <u> 태그 적용 로직
 PDF에서 밑줄 친 텍스트를 추출하고
 해당 밑줄이 속한 상표(Filing number/International registration number)와 연결
 """
@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 
-def extract_trademark_sections(pdf_path):
+def extract_trademark_sections(pdf_path): 
     """
     PDF에서 'Information concerning the earlier mark' 섹션을 기준으로
     각 상표(Earlier Mark)의 범위를 추출하는 함수
@@ -181,91 +181,37 @@ def extract_underlines_only(pdf_path):
     return underlines
 
 
-def detect_delimiter_type(pdf_path):
+def extract_goods_with_spans(pdf_path, underlines):
     """
-    PDF에서 Goods/Services 영역의 구분자 타입 감지
-    - ';'이 있으면 'semicolon' 반환 (;과 .로 분리)
-    - ';'이 없고 ','가 있으면 'comma' 반환 (,와 .로 분리)
-    - 둘 다 없으면 'dot_only' 반환 (.로만 분리)
-    """
-    doc = fitz.open(pdf_path)
-
-    anchor_pattern = re.compile(
-        r"Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground",
-        re.IGNORECASE
-    )
-
-    goods_text = ""
-    after_anchor = False
-
-    for page in doc:
-        text_dict = page.get_text("dict")
-
-        for block in text_dict["blocks"]:
-            if "lines" not in block:
-                continue
-
-            for line_obj in block["lines"]:
-                for span in line_obj["spans"]:
-                    txt = span["text"]
-
-                    if anchor_pattern.search(txt):
-                        after_anchor = True
-                        colon_idx = txt.find(":")
-                        if colon_idx != -1:
-                            goods_text += txt[colon_idx + 1:]
-                        continue
-
-                    if after_anchor:
-                        goods_text += txt
-                        if '.' in txt:
-                            break
-
-            if after_anchor and '.' in goods_text:
-                break
-        if after_anchor and '.' in goods_text:
-            break
-
-    doc.close()
-
-    # 구분자 타입 결정: ';'이 있으면 semicolon, ','가 있으면 comma, 없으면 dot_only
-    if ';' in goods_text:
-        return 'semicolon'
-    elif ',' in goods_text:
-        return 'comma'
-    else:
-        return 'dot_only'
-
-
-def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
-    """
-    앵커 패턴 이후 텍스트를 추출하고 밑줄 부분에만 <u> 태그 적용
+    앵커 패턴 이후 텍스트를 ';'과 '.' 기준으로 분리하고
+    밑줄 부분에만 <u> 태그 적용
+    (','는 분리 기준이 아님 - 하나의 상품 내에서 사용됨)
 
     Args:
         pdf_path: PDF 파일 경로
         underlines: extract_underlines_only() 결과
-        delimiter_type: 'semicolon' (;과 . 기준), 'comma' (,와 . 기준), 'dot_only' (.로만 분리)
     """
     doc = fitz.open(pdf_path)
     results = []
 
-    anchor_pattern = re.compile(
-        r"Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground",
-        re.IGNORECASE
-    )
+    # 앵커 패턴들
+    ANCHOR_PATTERNS = [
+        re.compile(
+            r"Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground",
+            re.IGNORECASE
+        ),
+        re.compile(
+            r"\(\s*underlined\s+goods(?:/services)?\s*\)",
+            re.IGNORECASE
+        ),
+    ]
 
-    page_num_pattern = re.compile(r'^\s*-\s*\d+\s*-\s*$')
+    # 페이지 번호 패턴 (예: "- 5 -", "- 6 -")
+    PAGE_NUM_PATTERN = re.compile(r'^\s*-\s*\d+\s*-\s*$')
 
-    # 구분자 설정
-    if delimiter_type == 'semicolon':
-        delimiter_regex = r'([;.])'
-        delimiters = [';', '.']
-    elif delimiter_type == 'comma':
-        delimiter_regex = r'([,.])'
-        delimiters = [',', '.']
-    else:  # dot_only
-        delimiter_regex = r'([.])'
-        delimiters = ['.']
+    # 구분자: ';'과 '.'만 사용 (','는 분리 기준 아님)
+    DELIMITER_REGEX = r'([;.])'
+    DELIMITERS = [';', '.']
 
     def get_underlined_texts_for_page(page, page_num):
         """페이지에서 밑줄 바로 위의 텍스트 추출"""
@@ -273,6 +219,7 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
         page_underlines = [ul for ul in underlines if ul["page"] == page_num]
 
         for ul in page_underlines:
+            # 밑줄 바로 위 영역 (텍스트 높이 약 12pt)
             clip_rect = fitz.Rect(
                 ul["x0"] - 1,
                 ul["y"] - 12,
@@ -280,9 +227,13 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
                 ul["y"] + 1
             )
             text = page.get_text("text", clip=clip_rect).strip()
-            text = " ".join(text.split())
+            text = " ".join(text.split())  # 공백 정리
 
             if text:
+                # 제외 대상 체크
+                if should_exclude_underlined_text(text):
+                    continue
+
                 underlined_texts.append({
                     "text": text,
                     "y": ul["y"],
@@ -299,7 +250,7 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
 
         tagged_text = full_text
 
-        # 밑줄 텍스트들을 길이순 정렬 (긴 것 먼저)
+        # 밑줄 텍스트들을 길이순 정렬 (긴 것 먼저 - 부분 매칭 방지)
         sorted_ul_texts = sorted(underlined_texts, key=lambda x: len(x["text"]), reverse=True)
 
         for ul in sorted_ul_texts:
@@ -307,26 +258,29 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
             if not ul_text:
                 continue
 
+            # 이미 태그된 부분 건너뛰기
             if f"<u>{ul_text}</u>" in tagged_text:
                 continue
 
+            # 정확한 텍스트 매칭 후 태그 적용
             if ul_text in tagged_text:
                 pattern = re.compile(re.escape(ul_text))
                 matches = list(pattern.finditer(tagged_text))
 
-                for match in reversed(matches):
+                for match in reversed(matches):  # 뒤에서부터 처리
                     start, end = match.start(), match.end()
 
+                    # 이미 <u> 태그 안에 있는지 확인
                     before = tagged_text[:start]
                     if before.count("<u>") > before.count("</u>"):
-                        continue
+                        continue  # 이미 태그 안에 있음
 
                     tagged_text = tagged_text[:start] + f"<u>{ul_text}</u>" + tagged_text[end:]
-                    break
+                    break  # 첫 번째 매칭만 처리
 
         return tagged_text
 
-    # 버퍼
+    # 버퍼: 텍스트 누적 (줄바꿈 처리용)
     buffer_texts = []
     buffer_page = None
     buffer_y0 = float('inf')
@@ -334,15 +288,18 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
     buffer_underlined_texts = []
 
     def flush_buffer():
+        """버퍼에 있는 텍스트를 합쳐서 results에 추가"""
         nonlocal buffer_texts, buffer_page, buffer_y0, buffer_y1, buffer_underlined_texts
 
         if not buffer_texts:
             return
 
+        # 텍스트 합치기
         full_text = " ".join(buffer_texts)
         full_text = re.sub(r'\s+', ' ', full_text).strip()
 
         if full_text:
+            # 밑줄 태그 적용
             tagged_text = apply_underline_tags(full_text, buffer_underlined_texts)
 
             results.append({
@@ -353,12 +310,14 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
                 "y1": buffer_y1,
             })
 
+        # 초기화
         buffer_texts = []
         buffer_y0 = float('inf')
         buffer_y1 = 0
         buffer_underlined_texts = []
 
     def add_to_buffer(text, y0, y1, page, page_underlined_texts):
+        """텍스트를 버퍼에 추가"""
         nonlocal buffer_page, buffer_y0, buffer_y1, buffer_underlined_texts
 
         buffer_texts.append(text)
@@ -366,6 +325,7 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
         buffer_y0 = min(buffer_y0, y0)
         buffer_y1 = max(buffer_y1, y1)
 
+        # 해당 y 범위에 있는 밑줄 텍스트 수집
         for ul in page_underlined_texts:
             if y0 - 5 <= ul["y"] <= y1 + 5:
                 if ul not in buffer_underlined_texts:
@@ -389,20 +349,30 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
                     if not txt.strip():
                         continue
 
-                    if page_num_pattern.match(txt.strip()):
+                    # 페이지 번호 스킵
+                    if PAGE_NUM_PATTERN.match(txt.strip()):
                         continue
 
-                    if anchor_pattern.search(txt):
+                    # 앵커 패턴 찾기
+                    anchor_found = False
+                    for pattern in ANCHOR_PATTERNS:
+                        if pattern.search(txt):
+                            anchor_found = True
+                            break
+
+                    if anchor_found:
                         after_anchor = True
+                        # ":" 이후 텍스트 처리
                         colon_idx = txt.find(":")
                         if colon_idx != -1 and colon_idx < len(txt) - 1:
                             after_colon = txt[colon_idx + 1:].strip()
                             if after_colon:
-                                parts = re.split(delimiter_regex, after_colon)
+                                # ';' 또는 '.'로 분리
+                                parts = re.split(DELIMITER_REGEX, after_colon)
                                 for part in parts:
                                     if not part:
                                         continue
-                                    if part in delimiters:
+                                    if part in DELIMITERS:
                                         flush_buffer()
                                         if part == '.':
                                             after_anchor = False
@@ -413,25 +383,61 @@ def extract_goods_with_spans(pdf_path, underlines, delimiter_type='semicolon'):
                     if not after_anchor:
                         continue
 
-                    # 앵커 이후 텍스트 처리
-                    has_delimiter = any(d in txt for d in delimiters)
-                    if has_delimiter:
-                        parts = re.split(delimiter_regex, txt)
+                    # 앵커 이후 텍스트 처리: ';'과 '.'로만 분리
+                    if ';' in txt or '.' in txt:
+                        parts = re.split(DELIMITER_REGEX, txt)
                         for part in parts:
                             if not part:
                                 continue
-                            if part in delimiters:
+                            if part in DELIMITERS:
                                 flush_buffer()
                                 if part == '.':
                                     after_anchor = False
                             else:
                                 add_to_buffer(part, bbox[1], bbox[3], page_num + 1, page_underlined_texts)
                     else:
+                        # ','가 있어도 분리하지 않고 그대로 버퍼에 추가
                         add_to_buffer(txt, bbox[1], bbox[3], page_num + 1, page_underlined_texts)
 
+    # 마지막 버퍼 처리
     flush_buffer()
+
     doc.close()
     return results
+
+
+def should_exclude_underlined_text(text: str) -> bool:
+    """
+    밑줄 텍스트가 '상품 정보가 아닌 경우' 제외하기 위한 판단 함수
+    """
+
+    stripped = text.strip()
+
+    # 1. << ... >> 형태 (메타/주석)
+    if re.fullmatch(r"<<\s*[^<>]+\s*>>", stripped):
+        return True
+
+    # 2. 연락처 관련 키워드 포함 여부
+    if re.search(r"\b(Fax|Tel\.?|Telephone|E-mail|Email)\b", stripped, re.IGNORECASE):
+        return True
+
+    # 3. 이메일 주소 포함
+    if "@" in stripped:
+        return True
+
+    # 4. 심사관 직책 단독 텍스트
+    if stripped in ["심사관 파트장 팀장 국장", "심사관 팀장 국장"]:
+        return True
+
+    # 5. 심사관 등 직책으로 시작하는 텍스트
+    if stripped.startswith(('심사관', '파트장', '팀장', '국장')):
+        return True
+
+    # 6. underlined goods 메타 텍스트
+    if re.search(r"underlined goods", stripped, re.IGNORECASE):
+        return True
+
+    return False
 
 
 def find_all_matching_tagged(sec, tagged_list, used_indices):
@@ -479,6 +485,17 @@ def clean_tagged_text(tagged_text):
     if not tagged_text:
         return tagged_text
 
+    # applied-for mark 설명 제거
+    tagged_text = re.sub(
+        r"^\*?\s*Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground:\s*",
+        "",
+        tagged_text,
+        flags=re.IGNORECASE
+    )
+
+    # (underlined goods) 제거
+    tagged_text = re.sub(r"^\(\s*underlined goods(?:/services)?\s*\)\s*", "", tagged_text, flags=re.IGNORECASE)
+
     # [Class XX] 제거
     tagged_text = re.sub(
         r"\s*\[\s*Class\s*\d+\s*\]\s*",
@@ -498,24 +515,20 @@ def clean_tagged_text(tagged_text):
 def process_pdf(pdf_path):
     """
     PDF 처리 메인 함수
-    - 구분자 타입 자동 감지 (semicolon vs comma vs dot_only)
-    - 밑줄 추출
+    - ';'과 '.' 기준으로 상품 분리 (','는 분리 기준 아님)
+    - 밑줄 추출 및 <u> 태그 적용
     - 섹션 매칭
     """
-    # 1. 구분자 타입 감지
-    delimiter_type = detect_delimiter_type(pdf_path)
-    print(f"감지된 구분자 타입: {delimiter_type}")
-
-    # 2. 밑줄 좌표 추출
+    # 1. 밑줄 좌표 추출
     underlines = extract_underlines_only(pdf_path)
 
-    # 3. 섹션 정보 추출
+    # 2. 섹션 정보 추출
     sections = extract_trademark_sections(pdf_path)
 
-    # 4. Goods 추출 + 밑줄 태그
-    tagged_results = extract_goods_with_spans(pdf_path, underlines, delimiter_type)
+    # 3. Goods 추출 + 밑줄 태그 (';'과 '.' 기준 분리)
+    tagged_results = extract_goods_with_spans(pdf_path, underlines)
 
-    # 5. 섹션에 매칭
+    # 4. 섹션에 매칭
     final_results = []
     used_tagged = set()
 
@@ -534,7 +547,6 @@ def process_pdf(pdf_path):
         })
 
     return {
-        "delimiter_type": delimiter_type,
         "sections": sections,
         "tagged_results": tagged_results,
         "final_results": final_results
@@ -544,7 +556,7 @@ def process_pdf(pdf_path):
 def print_results(data):
     """결과 출력"""
     print("\n" + "=" * 80)
-    print(f"구분자 타입: {data['delimiter_type']}")
+    print("구분자: ';'과 '.' 기준 분리 (','는 분리 안함)")
     print("=" * 80 + "\n")
 
     print("📍 밑줄 매칭 결과 (<u> 태그 적용):")
@@ -552,8 +564,10 @@ def print_results(data):
         has_underline = "<u>" in item["tagged_text"]
         mark = "✅" if has_underline else "  "
         print(f"  {idx}. {mark} page={item['page']}")
-        print(f"      원본: {item['text'][:100]}..." if len(item['text']) > 100 else f"      원본: {item['text']}")
-        print(f"      태그: {item['tagged_text'][:100]}..." if len(item['tagged_text']) > 100 else f"      태그: {item['tagged_text']}")
+        text_preview = item['text'][:100] + "..." if len(item['text']) > 100 else item['text']
+        tagged_preview = item['tagged_text'][:100] + "..." if len(item['tagged_text']) > 100 else item['tagged_text']
+        print(f"      원본: {text_preview}")
+        print(f"      태그: {tagged_preview}")
     print()
 
     print("=" * 80)
@@ -582,7 +596,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         pdf_path = sys.argv[1]
     else:
-        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075457917-01-복사.pdf"
+        pdf_path = r"c:\Users\mark\Downloads\가거절 통지서\가거절 통지서\문제\552025075453328-02-복사.pdf"
 
     if not Path(pdf_path).exists():
         print(f"파일 없음: {pdf_path}")
