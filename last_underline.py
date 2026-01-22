@@ -143,212 +143,9 @@ def extract_trademark_sections(pdf_path):
     doc.close()
     return sections
 
-
-def extract_underlines_only(pdf_path):
-    """PDF에서 밑줄(수평선)과 해당 텍스트 추출"""
-    doc = fitz.open(pdf_path)
-    underlines = []
-
-    for page_num, page in enumerate(doc):
-        drawings = page.get_drawings()
-
-        for d in drawings:
-            for item in d.get("items", []):
-                if item[0] == "l":
-                    p1, p2 = item[1], item[2]
-
-                    if abs(p1.y - p2.y) < 2:
-                        length = abs(p2.x - p1.x)
-
-                        if 10 < length < 500:
-                            # 밑줄 위의 텍스트도 추출
-                            clip_rect = fitz.Rect(
-                                min(p1.x, p2.x) - 1,
-                                p1.y - 12,
-                                max(p1.x, p2.x) + 1,
-                                p1.y + 1
-                            )
-                            text = page.get_text("text", clip=clip_rect).strip()
-                            text = " ".join(text.split())
-                            # 끝의 구두점 제거
-                            text = text.rstrip(',;.')
-
-                            underlines.append({
-                                "page": page_num + 1,
-                                "y": p1.y,
-                                "x0": min(p1.x, p2.x),
-                                "x1": max(p1.x, p2.x),
-                                "text": text,
-                            })
-
-    doc.close()
-    return underlines
-
-
-def detect_delimiter_type(pdf_path):
-    """
-    PDF에서 Goods/Services 영역의 구분자 타입 감지
-    - 모든 Goods/Services 영역을 검사하여 하나라도 ';'이 있으면 'semicolon' 반환
-    - ';'이 없고 ','가 있으면 'comma' 반환
-    """
-    doc = fitz.open(pdf_path)
-
-    # 다양한 Goods/Services 패턴 지원
-    anchor_pattern = re.compile(
-        r"Goods(?:/Services)?\s+of\s+the\s+(?:applied[- ]for|proposed)\s+mark",
-        re.IGNORECASE
-    )
-
-    all_goods_text = ""
-    current_goods_text = ""
-    after_anchor = False
-
-    for page in doc:
-        text_dict = page.get_text("dict")
-
-        for block in text_dict["blocks"]:
-            if "lines" not in block:
-                continue
-
-            for line_obj in block["lines"]:
-                for span in line_obj["spans"]:
-                    txt = span["text"]
-
-                    if anchor_pattern.search(txt):
-                        # 이전 영역 저장
-                        if current_goods_text:
-                            all_goods_text += current_goods_text + " "
-                        current_goods_text = ""
-                        after_anchor = True
-                        colon_idx = txt.find(":")
-                        if colon_idx != -1:
-                            current_goods_text += txt[colon_idx + 1:]
-                        continue
-
-                    if after_anchor:
-                        current_goods_text += txt
-                        if '.' in txt:
-                            # 현재 영역 저장하고 다음 영역 찾기
-                            all_goods_text += current_goods_text + " "
-                            current_goods_text = ""
-                            after_anchor = False
-
-    # 마지막 영역 저장
-    if current_goods_text:
-        all_goods_text += current_goods_text
-
-    doc.close()
-
-    if ';' in all_goods_text:
-        return 'semicolon'
-    else:
-        return 'comma'
-
-
-def should_exclude_underlined_text(text: str) -> bool:
-    """밑줄 텍스트가 상품 정보가 아닌 경우 제외"""
-    stripped = text.strip()
-
-    if re.fullmatch(r"<<\s*[^<>]+\s*>>", stripped):
-        return True
-
-    if re.search(r"\b(Fax|Tel\.?|Telephone|E-mail|Email)\b", stripped, re.IGNORECASE):
-        return True
-
-    if "@" in stripped:
-        return True
-
-    if stripped in ["심사관 파트장 팀장 국장", "심사관 팀장 국장"]:
-        return True
-
-    if stripped.startswith(('심사관', '파트장', '팀장', '국장')):
-        return True
-
-    if re.search(r"underlined goods", stripped, re.IGNORECASE):
-        return True
-
-    return False
-
-
-def normalize_for_compare(text: str) -> str:
-    """상품 비교용 정규화"""
-    if not text:
-        return ""
-
-    text = re.sub(
-        r"^\*?\s*Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground:\s*",
-        "",
-        text,
-        flags=re.IGNORECASE
-    )
-
-    text = re.sub(r"\[\s*Class\s*\d+\s*\]", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s{2,}", " ", text)
-
-    return text.strip()
-
-
-def clean_goods_text(goods: str) -> str:
-    """최종 결과용 goods 문자열 정리"""
-    if not goods:
-        return goods
-
-    goods = re.sub(
-        r"^\*?\s*Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground:\s*",
-        "",
-        goods,
-        flags=re.IGNORECASE
-    )
-
-    goods = re.sub(r"\s*\[\s*Class\s*\d+\s*\]\s*", "", goods, flags=re.IGNORECASE)
-    goods = re.sub(r"<u>\s+", "<u>", goods)
-    goods = re.sub(r"\s{2,}", " ", goods)
-
-    return goods.strip()
-
-
-def apply_underline_tags_to_text(full_text, underlined_texts):
-    """전체 텍스트에서 밑줄 텍스트에만 <u> 태그 적용 (전역 함수)"""
-    if not underlined_texts:
-        return full_text
-
-    tagged_text = full_text
-
-    # 긴 텍스트부터 처리 (짧은 텍스트가 긴 텍스트의 일부일 수 있음)
-    sorted_ul_texts = sorted(underlined_texts, key=lambda x: len(x["text"]), reverse=True)
-
-    for ul in sorted_ul_texts:
-        ul_text = ul["text"]
-        if not ul_text:
-            continue
-
-        # 이미 태그가 적용된 경우 스킵
-        if f"<u>{ul_text}</u>" in tagged_text:
-            continue
-
-        if ul_text in tagged_text:
-            pattern = re.compile(re.escape(ul_text))
-            matches = list(pattern.finditer(tagged_text))
-
-            # 앞에서부터 매칭 (밑줄은 보통 첫 번째 출현에 있음)
-            for match in matches:
-                start, end = match.start(), match.end()
-
-                # 이미 <u> 태그 내부인지 확인
-                before = tagged_text[:start]
-                if before.count("<u>") > before.count("</u>"):
-                    continue
-
-                tagged_text = tagged_text[:start] + f"<u>{ul_text}</u>" + tagged_text[end:]
-                break
-
-    return tagged_text
-
-
 # ============================================================
 # SEMICOLON 방식: ';'과 '.' 기준 개별 상품 분리
 # ============================================================
-
 def extract_underlined_with_positions_semicolon(pdf_path):
     """
     ';' 기준 PDF용: 밑줄 텍스트를 개별 상품으로 추출
@@ -452,157 +249,49 @@ def extract_underlined_with_positions_semicolon(pdf_path):
     doc.close()
     return results
 
+def extract_underlines_only(pdf_path):
+    """PDF에서 밑줄(수평선)과 해당 텍스트 추출"""
+    doc = fitz.open(pdf_path)
+    underlines = []
 
-def merge_multiline_underlines(underlines, y_gap=20):
-    """줄바꿈된 underline을 하나의 상품으로 병합"""
-    underlines = sorted(underlines, key=lambda x: (x["page"], x["y"]))
-    merged = []
+    for page_num, page in enumerate(doc):
+        drawings = page.get_drawings()
 
-    # "all the designated goods/services" 패턴 - 병합하지 않음
-    ALL_DESIGNATED_PATTERN = re.compile(
-        r'[\'\""\']?\s*all\s*[\'\""\']?\s+the\s+designated\s+(goods\s*/\s*services|goods|services)',
-        re.IGNORECASE
-    )
+        for d in drawings:
+            for item in d.get("items", []):
+                if item[0] == "l":
+                    p1, p2 = item[1], item[2]
 
-    buffer = None
+                    if abs(p1.y - p2.y) < 2:
+                        length = abs(p2.x - p1.x)
 
-    for u in underlines:
-        if buffer is None:
-            buffer = u.copy()
-            continue
+                        if 10 < length < 500:
+                            # 밑줄 위의 텍스트도 추출
+                            clip_rect = fitz.Rect(
+                                min(p1.x, p2.x) - 1,
+                                p1.y - 12,
+                                max(p1.x, p2.x) + 1,
+                                p1.y + 1
+                            )
+                            text = page.get_text("text", clip=clip_rect).strip()
+                            text = " ".join(text.split())
+                            # 끝의 구두점 제거
+                            text = text.rstrip(',;.')
 
-        same_page = buffer["page"] == u["page"]
-        close_y = abs(u["y"] - buffer["y"]) < y_gap
+                            underlines.append({
+                                "page": page_num + 1,
+                                "y": p1.y,
+                                "x0": min(p1.x, p2.x),
+                                "x1": max(p1.x, p2.x),
+                                "text": text,
+                            })
 
-        no_end = not buffer["text"].strip().endswith((';', '.'))
-
-        # "all the designated" 패턴이 있으면 병합하지 않음 (완결된 표현)
-        is_all_designated = ALL_DESIGNATED_PATTERN.search(buffer["text"])
-
-        if same_page and close_y and no_end and not is_all_designated:
-            buffer["text"] = buffer["text"].rstrip(';') + " " + u["text"].lstrip()
-
-            buffer["tagged_text"] = (
-                buffer["tagged_text"].replace("</u>", "") +
-                " " +
-                u["tagged_text"].replace("<u>", "")
-            )
-
-            buffer["y"] = u["y"]
-        else:
-            merged.append(buffer)
-            buffer = u.copy()
-
-    if buffer:
-        merged.append(buffer)
-
-    return merged
-
-
-def extract_goods_from_tagged_text(tagged_text: str) -> list:
-    """<u>...</u> 블록에서 상품 추출"""
-    goods = []
-    underline_blocks = re.findall(r"<u>(.*?)</u>", tagged_text)
-
-    for block in underline_blocks:
-        parts = [p.strip() for p in re.split(r"[;]", block) if p.strip()]
-
-        for part in parts:
-            goods.append(f"<u>{part}</u>")
-
-    return goods
-
-
-def match_underlines_to_sections_semicolon(sections, underlines):
-    """섹션에 밑줄 매칭 (semicolon 방식)"""
-    results = []
-
-    for section in sections:
-        goods_list = []
-
-        section_underlines = []
-        for u in underlines:
-            if not (section["page_start"] <= u["page"] <= section["page_end"]):
-                continue
-            if u["page"] == section["page_start"] and u["y"] < section["y_start"]:
-                continue
-            if u["page"] == section["page_end"] and u["y"] >= section["y_end"]:
-                continue
-
-            section_underlines.append(u)
-
-        section_underlines = merge_multiline_underlines(section_underlines)
-
-        for u in section_underlines:
-            ALL_DESIGNATED_PATTERN = re.compile(
-                r'(?i)[\'\""\"]?\s*all\s*[\'\""\"]?\s+the\s+designated\s+(goods\s*/\s*services|goods|services)',
-                re.VERBOSE
-            )
-            if ALL_DESIGNATED_PATTERN.search(u.get("full_text", "")):
-                g = "<u>all the designated goods/services</u>"
-                goods_list.append({
-                    "class": u.get("class"),
-                    "goods": g
-                })
-                continue
-
-            goods = extract_goods_from_tagged_text(u["tagged_text"])
-            full_goods_parts = [
-                p.strip()
-                for p in re.split(r"[;.]", u.get("full_text", ""))
-                if p.strip()
-            ]
-
-            for g in goods:
-                core = re.sub(r"</?u>", "", g).strip()
-
-                extended = None
-                standalone_exists = any(
-                    p.strip().lower() == core.lower()
-                    for p in full_goods_parts
-                )
-
-                for part in full_goods_parts:
-                    if (
-                            part.lower().startswith(core.lower() + " ")
-                            and not standalone_exists
-                    ):
-                        extended = part
-                        break
-
-                if extended:
-                    goods_list.append({
-                        "class": u.get("class"),
-                        "goods": extended.replace(
-                            core,
-                            f"<u>{core}</u>",
-                            1
-                        )
-                    })
-                else:
-                    goods_list.append({
-                        "class": u.get("class"),
-                        "goods": g
-                    })
-
-        results.append({
-            "mark_number": section.get("mark_number"),
-            "filing_number": section["filing_number"],
-            "international_registration": section["international_registration"],
-            "underlined_goods": goods_list
-        })
-
-    for r in results:
-        for item in r["underlined_goods"]:
-            item["goods"] = clean_goods_text(item["goods"])
-
-    return results
-
+    doc.close()
+    return underlines
 
 # ============================================================
 # COMMA 방식: 전체 문자열 유지, 밑줄 부분만 <u> 태그
 # ============================================================
-
 def extract_goods_with_spans_comma(pdf_path, underlines):
     """
     ',' 기준 PDF용: 전체 상품 문자열에서 밑줄 부분만 <u> 태그 적용
@@ -817,6 +506,323 @@ def extract_goods_with_spans_comma(pdf_path, underlines):
     doc.close()
     return results
 
+# ============================================================
+# 메인 처리 함수
+# ============================================================
+def detect_delimiter_for_goods_text(goods_text):
+    """
+    특정 Goods/Services 텍스트의 구분자 타입 판단
+    - ';'가 있으면 'semicolon'
+    - ';'가 없으면 'comma'
+    """
+    if ';' in goods_text:
+        return 'semicolon'
+    return 'comma'
+
+def match_underlines_to_sections_semicolon(sections, underlines):
+    """섹션에 밑줄 매칭 (semicolon 방식)"""
+    results = []
+
+    for section in sections:
+        goods_list = []
+
+        section_underlines = []
+        for u in underlines:
+            if not (section["page_start"] <= u["page"] <= section["page_end"]):
+                continue
+            if u["page"] == section["page_start"] and u["y"] < section["y_start"]:
+                continue
+            if u["page"] == section["page_end"] and u["y"] >= section["y_end"]:
+                continue
+
+            section_underlines.append(u)
+
+        section_underlines = merge_multiline_underlines(section_underlines)
+
+        for u in section_underlines:
+            ALL_DESIGNATED_PATTERN = re.compile(
+                r'(?i)[\'\""\"]?\s*all\s*[\'\""\"]?\s+the\s+designated\s+(goods\s*/\s*services|goods|services)',
+                re.VERBOSE
+            )
+            if ALL_DESIGNATED_PATTERN.search(u.get("full_text", "")):
+                g = "<u>all the designated goods/services</u>"
+                goods_list.append({
+                    "class": u.get("class"),
+                    "goods": g
+                })
+                continue
+
+            goods = extract_goods_from_tagged_text(u["tagged_text"])
+            full_goods_parts = [
+                p.strip()
+                for p in re.split(r"[;.]", u.get("full_text", ""))
+                if p.strip()
+            ]
+
+            for g in goods:
+                core = re.sub(r"</?u>", "", g).strip()
+
+                extended = None
+                standalone_exists = any(
+                    p.strip().lower() == core.lower()
+                    for p in full_goods_parts
+                )
+
+                for part in full_goods_parts:
+                    if (
+                            part.lower().startswith(core.lower() + " ")
+                            and not standalone_exists
+                    ):
+                        extended = part
+                        break
+
+                if extended:
+                    goods_list.append({
+                        "class": u.get("class"),
+                        "goods": extended.replace(
+                            core,
+                            f"<u>{core}</u>",
+                            1
+                        )
+                    })
+                else:
+                    goods_list.append({
+                        "class": u.get("class"),
+                        "goods": g
+                    })
+
+        results.append({
+            "mark_number": section.get("mark_number"),
+            "filing_number": section["filing_number"],
+            "international_registration": section["international_registration"],
+            "underlined_goods": goods_list
+        })
+
+    for r in results:
+        for item in r["underlined_goods"]:
+            item["goods"] = clean_goods_text(item["goods"])
+
+    return results
+
+def clean_goods_text(goods: str) -> str:
+    """최종 결과용 goods 문자열 정리"""
+    if not goods:
+        return goods
+
+    goods = re.sub(
+        r"^\*?\s*Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground:\s*",
+        "",
+        goods,
+        flags=re.IGNORECASE
+    )
+
+    goods = re.sub(r"\s*\[\s*Class\s*\d+\s*\]\s*", "", goods, flags=re.IGNORECASE)
+    goods = re.sub(r"<u>\s+", "<u>", goods)
+    goods = re.sub(r"\s{2,}", " ", goods)
+
+    return goods.strip()
+
+def normalize_for_compare(text: str) -> str:
+    """상품 비교용 정규화"""
+    if not text:
+        return ""
+
+    text = re.sub(
+        r"^\*?\s*Goods/Services\s+of\s+the\s+applied[- ]for\s+mark\s+in\s+relation\s+to\s+this\s+ground:\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    text = re.sub(r"\[\s*Class\s*\d+\s*\]", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s{2,}", " ", text)
+
+    return text.strip()
+
+def should_exclude_underlined_text(text: str) -> bool:
+    """밑줄 텍스트가 상품 정보가 아닌 경우 제외"""
+    stripped = text.strip()
+
+    if re.fullmatch(r"<<\s*[^<>]+\s*>>", stripped):
+        return True
+
+    if re.search(r"\b(Fax|Tel\.?|Telephone|E-mail|Email)\b", stripped, re.IGNORECASE):
+        return True
+
+    if "@" in stripped:
+        return True
+
+    if stripped in ["심사관 파트장 팀장 국장", "심사관 팀장 국장"]:
+        return True
+
+    if stripped.startswith(('심사관', '파트장', '팀장', '국장')):
+        return True
+
+    if re.search(r"underlined goods", stripped, re.IGNORECASE):
+        return True
+
+    return False
+
+def merge_multiline_underlines(underlines, y_gap=20):
+    """줄바꿈된 underline을 하나의 상품으로 병합"""
+    underlines = sorted(underlines, key=lambda x: (x["page"], x["y"]))
+    merged = []
+
+    # "all the designated goods/services" 패턴 - 병합하지 않음
+    ALL_DESIGNATED_PATTERN = re.compile(
+        r'[\'\""\']?\s*all\s*[\'\""\']?\s+the\s+designated\s+(goods\s*/\s*services|goods|services)',
+        re.IGNORECASE
+    )
+
+    buffer = None
+
+    for u in underlines:
+        if buffer is None:
+            buffer = u.copy()
+            continue
+
+        same_page = buffer["page"] == u["page"]
+        close_y = abs(u["y"] - buffer["y"]) < y_gap
+
+        no_end = not buffer["text"].strip().endswith((';', '.'))
+
+        # "all the designated" 패턴이 있으면 병합하지 않음 (완결된 표현)
+        is_all_designated = ALL_DESIGNATED_PATTERN.search(buffer["text"])
+
+        if same_page and close_y and no_end and not is_all_designated:
+            buffer["text"] = buffer["text"].rstrip(';') + " " + u["text"].lstrip()
+
+            buffer["tagged_text"] = (
+                buffer["tagged_text"].replace("</u>", "") +
+                " " +
+                u["tagged_text"].replace("<u>", "")
+            )
+
+            buffer["y"] = u["y"]
+        else:
+            merged.append(buffer)
+            buffer = u.copy()
+
+    if buffer:
+        merged.append(buffer)
+
+    return merged
+
+def extract_goods_from_tagged_text(tagged_text: str) -> list:
+    """<u>...</u> 블록에서 상품 추출"""
+    goods = []
+    underline_blocks = re.findall(r"<u>(.*?)</u>", tagged_text)
+
+    for block in underline_blocks:
+        parts = [p.strip() for p in re.split(r"[;]", block) if p.strip()]
+
+        for part in parts:
+            goods.append(f"<u>{part}</u>")
+
+    return goods
+
+
+
+
+
+
+
+
+def detect_delimiter_type(pdf_path):
+    """
+    PDF에서 Goods/Services 영역의 구분자 타입 감지
+    - 모든 Goods/Services 영역을 검사하여 하나라도 ';'이 있으면 'semicolon' 반환
+    - ';'이 없고 ','가 있으면 'comma' 반환
+    """
+    doc = fitz.open(pdf_path)
+
+    # 다양한 Goods/Services 패턴 지원
+    anchor_pattern = re.compile(
+        r"Goods(?:/Services)?\s+of\s+the\s+(?:applied[- ]for|proposed)\s+mark",
+        re.IGNORECASE
+    )
+
+    all_goods_text = ""
+    current_goods_text = ""
+    after_anchor = False
+
+    for page in doc:
+        text_dict = page.get_text("dict")
+
+        for block in text_dict["blocks"]:
+            if "lines" not in block:
+                continue
+
+            for line_obj in block["lines"]:
+                for span in line_obj["spans"]:
+                    txt = span["text"]
+
+                    if anchor_pattern.search(txt):
+                        # 이전 영역 저장
+                        if current_goods_text:
+                            all_goods_text += current_goods_text + " "
+                        current_goods_text = ""
+                        after_anchor = True
+                        colon_idx = txt.find(":")
+                        if colon_idx != -1:
+                            current_goods_text += txt[colon_idx + 1:]
+                        continue
+
+                    if after_anchor:
+                        current_goods_text += txt
+                        if '.' in txt:
+                            # 현재 영역 저장하고 다음 영역 찾기
+                            all_goods_text += current_goods_text + " "
+                            current_goods_text = ""
+                            after_anchor = False
+
+    # 마지막 영역 저장
+    if current_goods_text:
+        all_goods_text += current_goods_text
+
+    doc.close()
+
+    if ';' in all_goods_text:
+        return 'semicolon'
+    else:
+        return 'comma'
+
+def apply_underline_tags_to_text(full_text, underlined_texts):
+    """전체 텍스트에서 밑줄 텍스트에만 <u> 태그 적용 (전역 함수)"""
+    if not underlined_texts:
+        return full_text
+
+    tagged_text = full_text
+
+    # 긴 텍스트부터 처리 (짧은 텍스트가 긴 텍스트의 일부일 수 있음)
+    sorted_ul_texts = sorted(underlined_texts, key=lambda x: len(x["text"]), reverse=True)
+
+    for ul in sorted_ul_texts:
+        ul_text = ul["text"]
+        if not ul_text:
+            continue
+
+        # 이미 태그가 적용된 경우 스킵
+        if f"<u>{ul_text}</u>" in tagged_text:
+            continue
+
+        if ul_text in tagged_text:
+            pattern = re.compile(re.escape(ul_text))
+            matches = list(pattern.finditer(tagged_text))
+
+            # 앞에서부터 매칭 (밑줄은 보통 첫 번째 출현에 있음)
+            for match in matches:
+                start, end = match.start(), match.end()
+
+                # 이미 <u> 태그 내부인지 확인
+                before = tagged_text[:start]
+                if before.count("<u>") > before.count("</u>"):
+                    continue
+
+                tagged_text = tagged_text[:start] + f"<u>{ul_text}</u>" + tagged_text[end:]
+                break
+
+    return tagged_text
 
 def match_goods_to_sections_comma(sections, tagged_results):
     """섹션에 상품 매칭 (comma 방식)"""
@@ -888,22 +894,6 @@ def match_goods_to_sections_comma(sections, tagged_results):
         })
 
     return final_results
-
-
-# ============================================================
-# 메인 처리 함수
-# ============================================================
-
-def detect_delimiter_for_goods_text(goods_text):
-    """
-    특정 Goods/Services 텍스트의 구분자 타입 판단
-    - ';'가 있으면 'semicolon'
-    - ';'가 없으면 'comma'
-    """
-    if ';' in goods_text:
-        return 'semicolon'
-    return 'comma'
-
 
 def process_pdf(pdf_path):
     """
@@ -996,6 +986,8 @@ def process_pdf(pdf_path):
                     "class": item.get("class"),
                     "goods": tagged_text
                 })
+
+    print(final_results)
     return final_results
 
 
@@ -1003,7 +995,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         pdf_path = sys.argv[1]
     else:
-        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075453328-02-복사.pdf"
+        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/직권가거절통지서.pdf"
 
     if not Path(pdf_path).exists():
         print(f"파일 없음: {pdf_path}")
