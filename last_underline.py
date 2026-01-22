@@ -152,6 +152,7 @@ def extract_underlined_with_positions_semicolon(pdf_path):
     """
     doc = fitz.open(pdf_path)
     results = []
+    last_class = None  # 마지막으로 발견한 class 값 저장
 
     for page_num, page in enumerate(doc):
         drawings = page.get_drawings()
@@ -171,6 +172,9 @@ def extract_underlined_with_positions_semicolon(pdf_path):
                                 "x0": min(p1.x, p2.x),
                                 "x1": max(p1.x, p2.x),
                             })
+
+        # y좌표 순으로 정렬 (위에서 아래로)
+        lines = sorted(lines, key=lambda x: x["y"])
 
         for line in lines:
             anchor_rect = fitz.Rect(
@@ -202,9 +206,28 @@ def extract_underlined_with_positions_semicolon(pdf_path):
             if not full_text:
                 continue
 
-            # Class 정보 추출
+            # Class 정보 추출 - 현재 라인에서 먼저 찾기
             match = re.search(r'\[Class\s+(\d+)\]', full_text, re.IGNORECASE)
             class_num = match.group(1) if match else None
+
+            # 현재 라인에 없으면 위쪽 영역에서 찾기 (줄바꿈된 경우)
+            if not class_num:
+                extended_rect = fitz.Rect(
+                    0,
+                    line["y"] - 30,  # 위쪽으로 더 넓게
+                    page.rect.width,
+                    line["y"] + 1,
+                )
+                extended_text = page.get_text("text", clip=extended_rect)
+                extended_text = " ".join(extended_text.strip().split())
+                match = re.search(r'\[Class\s+(\d+)\]', extended_text, re.IGNORECASE)
+                class_num = match.group(1) if match else None
+
+            # class를 찾았으면 last_class 업데이트, 못 찾았으면 last_class 사용
+            if class_num:
+                last_class = class_num
+            else:
+                class_num = last_class
 
             # 정규화
             normalized_text = normalize_for_compare(anchor_text)
@@ -388,9 +411,10 @@ def extract_goods_with_spans_comma(pdf_path, underlines):
     buffer_y1 = 0
     buffer_underlined_texts = []
     buffer_class = None
+    last_class = None  # 마지막으로 발견한 class 값 저장
 
     def flush_buffer():
-        nonlocal buffer_texts, buffer_page, buffer_y0, buffer_y1, buffer_underlined_texts, buffer_class
+        nonlocal buffer_texts, buffer_page, buffer_y0, buffer_y1, buffer_underlined_texts, buffer_class, last_class
 
         if not buffer_texts:
             return
@@ -403,7 +427,13 @@ def extract_goods_with_spans_comma(pdf_path, underlines):
 
             # [Class XX] 추출
             class_match = re.search(r'\[Class\s+(\d+)\]', full_text, re.IGNORECASE)
-            class_num = class_match.group(1) if class_match else buffer_class
+            if class_match:
+                class_num = class_match.group(1)
+                last_class = class_num  # 새 class 발견 시 저장
+            elif buffer_class:
+                class_num = buffer_class
+            else:
+                class_num = last_class  # 못 찾으면 마지막 class 사용
 
             results.append({
                 "page": buffer_page,
@@ -421,12 +451,18 @@ def extract_goods_with_spans_comma(pdf_path, underlines):
         buffer_class = None
 
     def add_to_buffer(text, y0, y1, page, page_underlined_texts):
-        nonlocal buffer_page, buffer_y0, buffer_y1, buffer_underlined_texts
+        nonlocal buffer_page, buffer_y0, buffer_y1, buffer_underlined_texts, buffer_class, last_class
 
         buffer_texts.append(text)
         buffer_page = page
         buffer_y0 = min(buffer_y0, y0)
         buffer_y1 = max(buffer_y1, y1)
+
+        # [Class XX] 추출
+        class_match = re.search(r'\[Class\s+(\d+)\]', text, re.IGNORECASE)
+        if class_match:
+            buffer_class = class_match.group(1)
+            last_class = buffer_class  # 마지막 class 값 업데이트
 
         for ul in page_underlined_texts:
             if y0 - 5 <= ul["y"] <= y1 + 5:
@@ -995,7 +1031,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         pdf_path = sys.argv[1]
     else:
-        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/직권가거절통지서.pdf"
+        pdf_path = r"/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075453283-01-복사.pdf"
 
     if not Path(pdf_path).exists():
         print(f"파일 없음: {pdf_path}")
