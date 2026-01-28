@@ -570,25 +570,14 @@ def merge_blocks_by_mark_and_class(final_result: list[dict]) -> list[dict]:
 
     return merged_results
 
-def process_class_text(cls: dict):
-    text = cls["text"]
-
-    result = _split_and_keep_underlined(text)
-
-    if result is None:
-        # 🔥 ; 없는 케이스 → 일단 그대로 유지 (또는 mark)
-        return {
-            "class": cls["class"],
-            "text": text,
-            "split_mode": "NO_SEMICOLON"
-        }
-
-    # 🔥 ; 기준 split + underline만 남긴 경우
-    return {
-        "class": cls["class"],
-        "text_items": result,
-        "split_mode": "SEMICOLON_UNDERLINED_ONLY"
-    }
+def post_process_classes(merged: list[dict]) -> list[dict]:
+    for ground in merged:
+        for em in ground.get("earlier_marks", []):
+            new_classes = []
+            for cls in em.get("classes", []):
+                new_classes.append(_split_class_text_by_semicolon(cls))
+            em["classes"] = new_classes
+    return merged
 
 def _find_exclusion_rects(page):
     drawings = page.get_drawings()
@@ -729,24 +718,34 @@ def _normalize_text(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
-def _split_and_keep_underlined(text: str) -> list[str] | None:
+def _split_class_text_by_semicolon(cls: dict) -> dict:
     """
-    ; 기준으로 분리하고 underline(<u>) 있는 항목만 반환
-    ; 가 없으면 None 반환 (후처리용)
+    - ; 있으면: ; 기준 분리 후 <u> 포함된 항목만 유지
+    - ; 없으면: 그대로 두고 split_mode만 표시
     """
+    text = cls["text"]
 
-    # ; 없는 케이스 → 나중 처리
+    # 🔥 세미콜론 없는 경우 → 분기만 표시
     if ";" not in text:
-        return None
+        return {
+            "class": cls["class"],
+            "text": text,
+            "split_mode": "NO_SEMICOLON"
+        }
 
     parts = [p.strip() for p in text.split(";")]
 
-    # underline 포함된 것만 필터
-    underlined_parts = [
+    # 🔥 underline 있는 항목만
+    underlined_only = [
         p for p in parts if UNDERLINE_RE.search(p)
     ]
 
-    return underlined_parts
+    return {
+        "class": cls["class"],
+        "text_items": underlined_only,
+        "split_mode": "SEMICOLON_UNDERLINED_ONLY"
+    }
+
 
 # =========================
 # RUN
@@ -764,8 +763,7 @@ if __name__ == "__main__":
 
     add_u_tag = apply_underlines_to_result(final_result, underline_texts)
 
-    merged = merge_blocks_by_mark_and_class(add_u_tag)
+    merged_text = merge_blocks_by_mark_and_class(add_u_tag)
+    result = post_process_classes(merged_text)
 
-    # results = process_class_text(merged)
-
-    print(json.dumps(merged, indent=2, ensure_ascii=False))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
