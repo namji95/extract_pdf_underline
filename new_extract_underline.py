@@ -751,7 +751,7 @@ def _split_class_text_by_semicolon(cls: dict) -> dict:
 # RUN
 # =========================
 if __name__ == "__main__":
-    pdf_file = "/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/문제/552025075457917-01-복사.pdf"
+    pdf_file = "/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/직권가거절통지서샘플/552025075457917-01-복사.pdf"
 
     ground_blocks = extract_ground_ranges(pdf_file)
     final_result = classify_ground_earlier_class(ground_blocks)
