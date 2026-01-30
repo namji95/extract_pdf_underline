@@ -1,9 +1,9 @@
 import asyncio
+import json
 import re
 from pathlib import Path
 
 import fitz
-from loguru import logger
 
 from container import es_repository
 
@@ -102,22 +102,17 @@ class TestExtractUnderline:
         if trademark_es is None:
             trademark_es = await es_repository()
         app_reference_number = filename.split("_")[0]
-        logger.info(f"app_reference_number: {app_reference_number} -> PDF UNDERLINE 추출 프로세스 시작.")
 
         ground_blocks = self.extract_ground_ranges(file_path)
         final_result = self.classify_ground_earlier_class(ground_blocks)
-        print(f'\nfinal_result:\n{final_result}\n')
         underline_texts = self.extract_underlined_texts(file_path)
-        print(f"\nunderline_texts:\n{underline_texts}\n")
 
         # fallback
         if not underline_texts:
             underline_texts = self.extract_underlined_texts_by_flag(file_path)
 
         add_u_tag = self.apply_underlines_to_result(final_result, underline_texts)
-        print(f'\nadd_u_tag:\n{add_u_tag}\n')
         merged_text = self.merge_blocks_by_mark_and_class(add_u_tag)
-        print(f'\nmerged_text:\n{merged_text}\n')
         final_results = await self.post_process_classes(merged_text, app_reference_number, trademark_es)
 
         return final_results
@@ -323,7 +318,6 @@ class TestExtractUnderline:
 
             for blk in blocks:
                 text = blk["text"]
-                print(text)
 
                 # if text.startswith("*"):
                 #     continue
@@ -656,7 +650,6 @@ class TestExtractUnderline:
 
                 for cls in ground.get("classes", []):
                     texts = [blk["text"] for blk in cls.get("blocks", [])]
-                    print(texts)
 
                     merged_text = self._normalize_text(" ".join(texts))
                     merged_text = CLASS_HEADER_RE.sub("", merged_text)
@@ -831,7 +824,6 @@ class TestExtractUnderline:
 
     async def split_class_text(self, cls: dict, app_reference_number, trademark_es) -> dict:
         text = cls["text"].strip()
-        # print("SEMICOLON, COMMA, NO_SEPARATOR => {}", text)
 
         if ";" in text:
             return self._split_by_semicolon(cls)
@@ -880,7 +872,6 @@ class TestExtractUnderline:
                 text_list.append(p)
 
         text = ", ".join(text_list)
-        # print(f"\n불필요한 데이터 제거 된 밑줄 데이터\n{text}\n")
 
         underline_texts = text.split(',')
 
@@ -890,14 +881,11 @@ class TestExtractUnderline:
             if "<u>" in part and "</u>" in part:
                 u_tag_texts.append(part.strip())
 
-        #         print(f"\n-=-=-=-=-=-=-=-=-=-=-\n{u_tag_texts}\n")
         underline_words = []
         for t in u_tag_texts:
             underline_words.append(self._strip_u_tag(t))
-        #         logger.info(f"u 태그 제거된 밑줄 데이터: {underline_words}")
 
         plain = self._strip_u_tag(text)
-        #         logger.info(f"\n밑줄 표시 제거된 전체 텍스트: {plain}\n")
 
         results = []
 
@@ -905,45 +893,36 @@ class TestExtractUnderline:
             app_reference_number,
             plain
         )
-        #         logger.info(f"\n[COMMA FULL TEXT COMPARE RESULT] => {full_db_results}\n")
 
         if full_db_results:
-            #             logger.info(f"\n[COMMA FULL TEXT COMPARE SUCCESS]\n")
             return {
                 "class": cls["class"],
                 "text_items": [text],
                 "split_mode": "COMMA_DB_FULL_MATCH"
             }
-        #         logger.info(f"\n[COMMA FULL TEXT COMPARE FAIL]")
 
         parts = [p.strip() for p in plain.split(",")]
         for idx, uw in enumerate(underline_words):
-            #             logger.info(f"\n[COMMA UNDERLINE COMPARE] => {uw}\n")
 
             original_u_tag_text = u_tag_texts[idx]
 
             start_idx = await self._find_start_index_with_db(
                 parts, uw, app_reference_number, trademark_es
             )
-            #             logger.info(f"\n[시작점 INDEX] => {start_idx}\n")
 
             if start_idx is None:
-                #                 logger.info(f"\n[시작점 찾기 실패 - 원본 밑줄 데이터 추가] => {original_u_tag_text}\n")
                 results.append(original_u_tag_text)
                 continue
 
             matched = await self._find_end_index_with_db(
                 parts, start_idx, uw, app_reference_number, trademark_es
             )
-            #             logger.info(f"\n[최종 매칭 텍스트] => {matched}\n")
 
             if not matched:
-                #                 logger.info(f"\n[끝지점 찾기 실패 - 원본 밑줄 데이터 추가] => {original_u_tag_text}\n")
                 results.append(original_u_tag_text)
                 continue
 
             matched = self._restore_underline(matched, uw)
-            #             logger.info(f"\n밑줄 복원 => {matched}\n")
 
             results.append(matched)
 
@@ -975,7 +954,6 @@ class TestExtractUnderline:
         db_results = await trademark_es.get_trademark_goods_prefix(
             app_reference_number, candidate
         )
-        logger.info(f"\n[시작점 탐색 - 단독] {candidate} => {db_results}\n")
 
         if not db_results:
             return underline_idx
@@ -986,7 +964,6 @@ class TestExtractUnderline:
             db_results = await trademark_es.get_trademark_goods_prefix(
                 app_reference_number, combined
             )
-            logger.info(f"\n[시작점 탐색 - 확장] {combined} => {db_results}\n")
 
             if db_results:
                 current_start = j
@@ -1007,7 +984,6 @@ class TestExtractUnderline:
         db_results = await trademark_es.get_trademark_goods_suffix(
             app_reference_number, current
         )
-        logger.info(f"\n[끝지점 탐색 - 시작] {current} => {db_results}\n")
 
         if not db_results:
             return current
@@ -1018,7 +994,6 @@ class TestExtractUnderline:
             db_results = await trademark_es.get_trademark_goods_suffix(
                 app_reference_number, current
             )
-            logger.info(f"\n[끝지점 탐색 - 확장] {current} => {db_results}\n")
 
             if db_results:
                 last_matched = current
@@ -1045,13 +1020,9 @@ class TestExtractUnderline:
             if not UNDERLINE_RE.search(p):
                 continue
             p = TRAILING_PAGE_MARK_RE.sub("", p).strip()
-            # print(f"페이지 번호 제거: {p}")
             p = TRAILING_EXAMPLE_RE.sub("", p).strip()
-            #             print(f"example 문구 제거: {p}")
             p = TRAILING_PUNCT_ONLY_RE.sub("", p).strip()
-            #             print(f"마지막 특수문자 제거: {p}")
             p = self._merge_consecutive_underlines(p)
-            #             print(f"u 태그 복구: {p}")
 
             if p:
                 results.append(p)
@@ -1094,7 +1065,6 @@ class TestExtractUnderline:
 
     def _find_start_index(self, parts: list[str], underline: str, db_results: list[str]) -> int:
         underline = underline.lower()
-        logger.info(f"\n[START INDEX] => {underline}\n")
 
         for i, part in enumerate(parts):
             if underline not in part.lower():
@@ -1102,14 +1072,12 @@ class TestExtractUnderline:
 
             candidate = part.strip()
             if any(db.lower().startswith(candidate.lower()) for db in db_results):
-                logger.info(f"\n[밑줄 단독 비교 결과] => {i} | {candidate}\n")
                 return i
 
             combined = candidate
             for j in range(i - 1, -1, -1):
                 combined = f"{parts[j].strip()} {combined}"
                 if any(db.lower().startswith(combined.lower()) for db in db_results):
-                    logger.info(f"\n[밑줄 , 기준 이전까지 확장] => \n{j} | {combined}\n")
                     return j
 
             return i
@@ -1124,7 +1092,6 @@ class TestExtractUnderline:
             db_results: list[str]
     ) -> str:
         current = parts[start_idx].strip()
-        print(f"시작점 텍스트 => {current}")
 
         current_clean = current.rstrip(';,.').strip()
         for db in db_results:
@@ -1135,7 +1102,6 @@ class TestExtractUnderline:
         for i in range(start_idx, len(parts)):
             if i > start_idx:
                 current = f"{current} {parts[i].strip()}"
-                logger.info(f"\n시작점과 다음 COMMA 까지 이어붙인 데이터: {current}\n")
 
             current_clean = current.rstrip(';,.').strip()
             for db in db_results:
@@ -1155,10 +1121,12 @@ class TestExtractUnderline:
 
 
 if __name__ == "__main__":
-    file_path = '/home/mark15/project/markpass/markpass-file/가거절통지서/552026004952741-01-복사.pdf'
+    file_path = '/home/mark15/project/markpass/markpass-file/example_opinion/가거절 통지서/테스트/식별력_1상표1출원.pdf'
     file_name = file_path.split('/')[-1]
     test_extract_underline = TestExtractUnderline()
     result = asyncio.run(test_extract_underline.extract_underline(
         file_path=file_path,
         filename=file_name,
     ))
+
+    print(json.dumps(result, indent=2, ensure_ascii=False))
